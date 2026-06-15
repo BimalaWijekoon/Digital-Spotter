@@ -1,0 +1,269 @@
+"""
+inference/lstm_runner.py
+Purpose: Load TFLite model and run inference on (3, 38) sequence.
+         Falls back to mock predictions if model file unavailable.
+Author: bimalawijekoon
+Version: 1.0.0
+Last Modified: 2026-06-15
+"""
+
+import logging
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config.config import Config
+from inference.scaler_wrapper import ScalerWrapper
+
+logger = logging.getLogger(__name__)
+
+# Attempt TFLite import
+try:
+    import tflite_runtime.interpreter as tflite
+    TFLITE_AVAILABLE = True
+except ImportError:
+    try:
+        import tensorflow as tf
+        tflite = tf.lite
+        TFLITE_AVAILABLE = True
+    except ImportError:
+        TFLITE_AVAILABLE = False
+        logger.warning(
+            "TFLite runtime not available — using mock inference"
+        )
+
+
+@dataclass
+class InferenceResult:
+    """Result from LSTM model inference.
+
+    Attributes:
+        label: Prediction label — 'Good Form' or 'Bad Form'.
+        confidence: Sigmoid output 0.0-1.0.
+        is_bad_form: True if confidence >= threshold.
+        latency_ms: Inference time in milliseconds.
+    """
+    label: str = "Good Form"
+    confidence: float = 0.5
+    is_bad_form: bool = False
+    latency_ms: float = 0.0
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization.
+
+        Returns:
+            dict: All fields as a dictionary.
+        """
+        return {
+            "label": self.label,
+            "confidence": round(self.confidence, 4),
+            "is_bad_form": self.is_bad_form,
+            "latency_ms": round(self.latency_ms, 2),
+        }
+
+
+class LSTMRunner:
+    """TFLite LSTM model loader and inference engine.
+
+    Loads a quantized TFLite model for form classification.
+    Falls back to mock predictions (random confidence) if
+    model file is not available.
+    """
+
+    def __init__(self):
+        """Initialize LSTMRunner with no model loaded."""
+        self._interpreter = None
+        self._input_details = None
+        self._output_details = None
+        self._scaler = ScalerWrapper()
+        self._is_loaded = False
+        self._is_mock = False
+
+    def load(self, model_path=None, scaler_path=None):
+        """Load TFLite model and scaler from files.
+
+        Args:
+            model_path: Path to .tflite model file. Uses
+                Config.PATHS.MODEL_TFLITE if None.
+            scaler_path: Path to scaler.pkl. Uses
+                Config.PATHS.SCALER_PKL if None.
+
+        Returns:
+            bool: True if real model loaded, False if using mock.
+
+        Side Effects:
+            Loads model and scaler into memory.
+        """
+        model_path = Path(model_path) if model_path else (
+            Config.PATHS.MODEL_TFLITE
+        )
+        scaler_path = Path(scaler_path) if scaler_path else (
+            Config.PATHS.SCALER_PKL
+        )
+
+        # Load scaler
+        self._scaler.load(scaler_path)
+
+        # Load model
+        if not model_path.exists():
+            logger.warning(
+                "Model not found: %s — using mock inference",
+                model_path
+            )
+            # TODO: PHASE_4 - Replace placeholder model with actual
+            # model_quantized.tflite from training
+            self._is_mock = True
+            self._is_loaded = True
+            return False
+
+        if not TFLITE_AVAILABLE:
+            logger.warning("TFLite unavailable — using mock inference")
+            self._is_mock = True
+            self._is_loaded = True
+            return False
+
+        try:
+            self._interpreter = tflite.Interpreter(
+                model_path=str(model_path)
+            )
+            self._interpreter.allocate_tensors()
+            self._input_details = (
+                self._interpreter.get_input_details()
+            )
+            self._output_details = (
+                self._interpreter.get_output_details()
+            )
+            self._is_loaded = True
+            self._is_mock = False
+            logger.info("LSTM model loaded from %s", model_path)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to load model: %s", e)
+            self._is_mock = True
+            self._is_loaded = True
+            return False
+
+    def predict(self, sequence):
+        """Run inference on a (3, 38) sequence.
+
+        Args:
+            sequence: numpy.ndarray of shape (3, 38) —
+                3 phase feature vectors.
+
+        Returns:
+            InferenceResult: Prediction with label, confidence,
+                and latency.
+
+        Side Effects:
+            None (pure inference).
+        """
+        if not self._is_loaded:
+            self.load()
+
+        start_time = time.perf_counter()
+
+        if self._is_mock:
+            return self._mock_predict(start_time)
+
+        try:
+            preprocessed = self._preprocess(sequence)
+
+            self._interpreter.set_tensor(
+                self._input_details[0]["index"],
+                preprocessed,
+            )
+            self._interpreter.invoke()
+
+            output = self._interpreter.get_tensor(
+                self._output_details[0]["index"]
+            )
+
+            # Sigmoid output: probability of bad form
+            confidence = float(output[0][0])
+            is_bad = confidence >= Config.INFERENCE.DECISION_THRESHOLD
+            label = (
+                Config.INFERENCE.BAD_FORM_LABEL if is_bad
+                else Config.INFERENCE.GOOD_FORM_LABEL
+            )
+
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+            return InferenceResult(
+                label=label,
+                confidence=confidence,
+                is_bad_form=is_bad,
+                latency_ms=elapsed_ms,
+            )
+
+        except Exception as e:
+            logger.error("Inference error: %s", e)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return InferenceResult(latency_ms=elapsed_ms)
+
+    def is_loaded(self):
+        """Check if model is loaded (including mock mode).
+
+        Returns:
+            bool: True if ready for inference.
+        """
+        return self._is_loaded
+
+    @property
+    def is_mock(self):
+        """Check if using mock predictions.
+
+        Returns:
+            bool: True if no real model loaded.
+        """
+        return self._is_mock
+
+    def _preprocess(self, sequence):
+        """Scale and reshape sequence for model input.
+
+        Args:
+            sequence: numpy.ndarray of shape (3, 38).
+
+        Returns:
+            numpy.ndarray: Shape (1, 3, 38) float32 tensor.
+        """
+        sequence = np.array(sequence, dtype=np.float32)
+
+        # Apply scaler to each phase vector
+        scaled = self._scaler.transform(sequence)
+
+        # Reshape to (1, 3, 38) — batch dimension
+        return scaled.reshape(1, *scaled.shape).astype(np.float32)
+
+    def _mock_predict(self, start_time):
+        """Generate mock prediction for development.
+
+        Produces a random confidence score, biased toward good form.
+
+        Args:
+            start_time: perf_counter timestamp.
+
+        Returns:
+            InferenceResult: Mock result with random confidence.
+        """
+        # Bias toward good form (70% chance)
+        confidence = np.random.beta(2, 5)  # Skewed toward 0
+        is_bad = confidence >= Config.INFERENCE.DECISION_THRESHOLD
+        label = (
+            Config.INFERENCE.BAD_FORM_LABEL if is_bad
+            else Config.INFERENCE.GOOD_FORM_LABEL
+        )
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+        return InferenceResult(
+            label=label,
+            confidence=float(confidence),
+            is_bad_form=is_bad,
+            latency_ms=elapsed_ms,
+        )

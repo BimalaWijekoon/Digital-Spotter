@@ -1,0 +1,1363 @@
+{
+    "project": {
+        "name": "Digital Spotter",
+        "version": "1.0.0",
+        "description": "Edge-based multimodal AI posture correction system for compound barbell lifts. Real-time BlazePose vision + IMU sensor fusion with TFLite LSTM inference on Raspberry Pi 4B.",
+        "author": "bimalawijekoon",
+        "hardware": {
+            "edge_device": "Raspberry Pi 4B 8GB RAM",
+            "camera": "IMX219 Camera Module v2",
+            "sensor": "ESP32-S3 + MPU6050 (future phase)",
+            "storage": "32GB SD Card",
+            "network": "SLT Fibre WiFi, static IP 192.168.1.8"
+        },
+        "access": {
+            "ssh": "ssh bimalawijekoon@192.168.1.8",
+            "stream": "http://192.168.1.8:8889/picam",
+            "dashboard": "http://192.168.1.8:8080",
+            "api": "http://192.168.1.8:5000",
+            "websocket": "ws://192.168.1.8:5000/ws"
+        }
+    },
+    "agent_instructions": {
+        "role": "You are a senior full-stack embedded AI engineer. Your job is to build the Digital Spotter production system exactly as specified in this plan. Follow each phase sequentially. Never skip a phase. After completing each file, run the corresponding test. Only proceed to the next phase when the current phase test passes. Always write production-grade, commented, scalable code.",
+        "coding_rules": [
+            "Every file must have a header comment block with: filename, purpose, author, version, last_modified",
+            "Every function must have a docstring explaining inputs, outputs, and side effects",
+            "Every API endpoint must have error handling with proper HTTP status codes",
+            "Every placeholder must be clearly marked with: # TODO: PHASE_X - description",
+            "All magic numbers must be constants defined at the top of the file",
+            "All configuration must come from config.py or environment variables, never hardcoded",
+            "All file paths must use pathlib.Path, never string concatenation",
+            "Python files must pass flake8 linting with max line length 100",
+            "JavaScript must use const/let, never var",
+            "CSS must use CSS variables for all colors, sizes, and fonts"
+        ],
+        "file_creation_rules": [
+            "Create files exactly at the paths specified in project_structure",
+            "Never create files outside the specified structure",
+            "Always create __init__.py in every Python package directory",
+            "Always create a README.md in every major directory",
+            "Run the test immediately after creating each file or group of files"
+        ],
+        "communication_rules": [
+            "After each phase, print a PHASE COMPLETE summary with: files created, tests passed, next phase",
+            "If a test fails, fix it before moving on — never skip",
+            "If a placeholder is added, log it to PLACEHOLDERS.md",
+            "Keep a CHANGELOG.md updated after each phase"
+        ]
+    },
+    "tech_stack": {
+        "frontend": {
+            "core": "Vanilla HTML5 + CSS3 + ES2022 JavaScript — no framework, zero dependencies, runs directly from Pi",
+            "video": "WebRTC WHEP protocol via mediamtx — hardware H264 GPU encode, sub-150ms latency",
+            "realtime": "Native WebSocket API — live pose data, angles, inference results",
+            "charts": "Chart.js 4.x CDN — joint angle time series, session history graphs",
+            "styling": "CSS Grid + Flexbox + CSS Variables — dark theme, responsive, no preprocessor needed",
+            "fonts": "Space Grotesk + Space Mono via Google Fonts CDN"
+        },
+        "backend": {
+            "framework": "Flask 3.x + Flask-SocketIO 5.x — lightweight, runs well on Pi 4B",
+            "websocket": "python-socketio with eventlet — async WebSocket for real-time data push",
+            "pose": "MediaPipe 0.10.x Tasks API — BlazePose Heavy model, float16",
+            "inference": "tflite-runtime — quantized LSTM model, sub-25ms per sequence",
+            "imu": "paho-mqtt — MQTT subscriber for ESP32-S3 IMU data (future phase)",
+            "database": "SQLite3 via Python stdlib — local session storage, zero config",
+            "serialization": "joblib — StandardScaler persistence",
+            "camera_stream": "mediamtx v1.9.1 — WebRTC + RTSP server with rpiCamera source"
+        },
+        "devops": {
+            "process_manager": "systemd — autostart all services on boot",
+            "reverse_proxy": "nginx — single port 80 entry point (future phase)",
+            "remote_dev": "VS Code Remote SSH — edit files directly on Pi",
+            "version_control": "git — local repo on Pi, push to GitHub",
+            "testing": "pytest + unittest — isolated unit tests per module"
+        }
+    },
+    "project_structure": {
+        "root": "/home/bimalawijekoon/digital-spotter",
+        "tree": {
+            "/home/bimalawijekoon/digital-spotter/": {
+                "type": "root",
+                "files": [
+                    "README.md",
+                    "CHANGELOG.md",
+                    "PLACEHOLDERS.md",
+                    ".gitignore",
+                    "requirements.txt",
+                    "setup.sh",
+                    "mediamtx.yml"
+                ]
+            },
+            "config/": {
+                "type": "package",
+                "purpose": "All configuration constants and environment settings",
+                "files": [
+                    "__init__.py",
+                    "config.py",
+                    "constants.py"
+                ]
+            },
+            "api/": {
+                "type": "package",
+                "purpose": "Flask REST API and WebSocket server",
+                "files": [
+                    "__init__.py",
+                    "app.py",
+                    "routes.py",
+                    "socket_events.py",
+                    "middleware.py"
+                ]
+            },
+            "vision/": {
+                "type": "package",
+                "purpose": "MediaPipe BlazePose pose estimation pipeline",
+                "files": [
+                    "__init__.py",
+                    "pose_engine.py",
+                    "angle_calculator.py",
+                    "rep_segmenter.py",
+                    "frame_processor.py"
+                ]
+            },
+            "inference/": {
+                "type": "package",
+                "purpose": "TFLite LSTM model inference and feature engineering",
+                "files": [
+                    "__init__.py",
+                    "lstm_runner.py",
+                    "feature_engineer.py",
+                    "scaler_wrapper.py",
+                    "sequence_buffer.py"
+                ]
+            },
+            "imu/": {
+                "type": "package",
+                "purpose": "ESP32-S3 MPU6050 IMU data subscriber (MQTT)",
+                "files": [
+                    "__init__.py",
+                    "mqtt_subscriber.py",
+                    "imu_processor.py",
+                    "fusion_engine.py"
+                ]
+            },
+            "database/": {
+                "type": "package",
+                "purpose": "SQLite session storage and query helpers",
+                "files": [
+                    "__init__.py",
+                    "db.py",
+                    "models.py",
+                    "queries.py",
+                    "schema.sql"
+                ]
+            },
+            "models/": {
+                "type": "assets",
+                "purpose": "ML model artifacts and scalers",
+                "files": [
+                    "model_quantized.tflite",
+                    "model_fullprec.tflite",
+                    "scaler.pkl",
+                    "README.md"
+                ]
+            },
+            "frontend/": {
+                "type": "static",
+                "purpose": "Production dashboard served by Flask",
+                "files": [
+                    "index.html"
+                ],
+                "subdirs": {
+                    "css/": [
+                        "main.css",
+                        "components.css",
+                        "animations.css"
+                    ],
+                    "js/": [
+                        "main.js",
+                        "stream.js",
+                        "websocket.js",
+                        "pose_overlay.js",
+                        "charts.js",
+                        "ui_controller.js"
+                    ],
+                    "assets/": [
+                        "logo.svg",
+                        "icons.svg"
+                    ]
+                }
+            },
+            "tests/": {
+                "type": "package",
+                "purpose": "Isolated tests for each subsystem",
+                "files": [
+                    "__init__.py",
+                    "README.md"
+                ],
+                "subdirs": {
+                    "test_01_camera/": [
+                        "test_camera_detect.py",
+                        "test_camera_stream.py",
+                        "test_camera_fps.py"
+                    ],
+                    "test_02_pose/": [
+                        "test_mediapipe_init.py",
+                        "test_angle_calculation.py",
+                        "test_rep_segmentation.py"
+                    ],
+                    "test_03_inference/": [
+                        "test_model_load.py",
+                        "test_scaler_load.py",
+                        "test_sequence_buffer.py",
+                        "test_full_inference.py"
+                    ],
+                    "test_04_api/": [
+                        "test_endpoints.py",
+                        "test_websocket.py",
+                        "test_auth.py"
+                    ],
+                    "test_05_database/": [
+                        "test_schema.py",
+                        "test_queries.py",
+                        "test_session_flow.py"
+                    ],
+                    "test_06_frontend/": [
+                        "test_webrtc_connect.py",
+                        "test_ui_load.py"
+                    ],
+                    "test_07_integration/": [
+                        "test_camera_to_pose.py",
+                        "test_pose_to_inference.py",
+                        "test_full_pipeline.py"
+                    ]
+                }
+            },
+            "scripts/": {
+                "type": "utilities",
+                "purpose": "Dev and ops scripts for Pi management",
+                "files": [
+                    "start_all.sh",
+                    "stop_all.sh",
+                    "restart_stream.sh",
+                    "check_status.sh",
+                    "deploy.sh",
+                    "backup_models.sh",
+                    "install_deps.sh"
+                ]
+            },
+            "logs/": {
+                "type": "runtime",
+                "purpose": "Application log files",
+                "files": [
+                    ".gitkeep"
+                ]
+            },
+            "data/": {
+                "type": "runtime",
+                "purpose": "SQLite database and session recordings",
+                "files": [
+                    ".gitkeep"
+                ]
+            }
+        }
+    },
+    "phases": [
+        {
+            "id": "PHASE_0",
+            "name": "Project Bootstrap",
+            "description": "Create full project skeleton, install dependencies, initialize git, verify environment",
+            "estimated_time": "20 minutes",
+            "steps": [
+                {
+                    "step": 0.1,
+                    "action": "CREATE_DIRECTORY_STRUCTURE",
+                    "command": "mkdir -p ~/digital-spotter/{config,api,vision,inference,imu,database,models,frontend/{css,js,assets},tests/{test_01_camera,test_02_pose,test_03_inference,test_04_api,test_05_database,test_06_frontend,test_07_integration},scripts,logs,data}",
+                    "verify": "ls ~/digital-spotter/ should show all directories"
+                },
+                {
+                    "step": 0.2,
+                    "action": "CREATE_REQUIREMENTS_TXT",
+                    "path": "~/digital-spotter/requirements.txt",
+                    "content": [
+                        "flask==3.0.3",
+                        "flask-socketio==5.3.6",
+                        "flask-cors==4.0.1",
+                        "eventlet==0.36.1",
+                        "mediapipe==0.10.14",
+                        "tflite-runtime==2.14.0",
+                        "numpy==1.26.4",
+                        "opencv-python-headless==4.10.0.84",
+                        "joblib==1.4.2",
+                        "paho-mqtt==2.1.0",
+                        "pytest==8.2.2",
+                        "requests==2.32.3"
+                    ]
+                },
+                {
+                    "step": 0.3,
+                    "action": "RUN_INSTALL",
+                    "command": "cd ~/digital-spotter && pip install -r requirements.txt --break-system-packages",
+                    "verify": "python3 -c 'import flask, mediapipe, numpy; print(\"OK\")'"
+                },
+                {
+                    "step": 0.4,
+                    "action": "CREATE_GITIGNORE",
+                    "path": "~/digital-spotter/.gitignore",
+                    "content": [
+                        "__pycache__/",
+                        "*.pyc",
+                        "*.pyo",
+                        "logs/*.log",
+                        "data/*.db",
+                        "*.tflite",
+                        "*.pkl",
+                        ".env",
+                        "venv/"
+                    ]
+                },
+                {
+                    "step": 0.5,
+                    "action": "INIT_GIT",
+                    "commands": [
+                        "cd ~/digital-spotter && git init",
+                        "git config user.email 'bimalawijekoon@digitalspotter.local'",
+                        "git config user.name 'Bimala Wijekoon'",
+                        "git add . && git commit -m 'chore: initial project bootstrap'"
+                    ]
+                }
+            ],
+            "test": {
+                "command": "python3 -c \"import flask, mediapipe, numpy, cv2, joblib; print('PHASE_0 PASS: All deps OK')\"",
+                "expected_output": "PHASE_0 PASS: All deps OK"
+            }
+        },
+        {
+            "id": "PHASE_1",
+            "name": "Configuration Layer",
+            "description": "Create the central config system. All other modules import from here. Zero hardcoded values anywhere else.",
+            "estimated_time": "15 minutes",
+            "files_to_create": [
+                {
+                    "path": "config/config.py",
+                    "purpose": "Master configuration — all settings in one place",
+                    "content_spec": {
+                        "sections": {
+                            "CAMERA": {
+                                "WIDTH": 1280,
+                                "HEIGHT": 720,
+                                "FPS": 30,
+                                "SENSOR": "imx219"
+                            },
+                            "STREAM": {
+                                "MEDIAMTX_HOST": "192.168.1.8",
+                                "WEBRTC_PORT": 8889,
+                                "RTSP_PORT": 8554,
+                                "STREAM_PATH": "picam"
+                            },
+                            "API": {
+                                "HOST": "0.0.0.0",
+                                "PORT": 5000,
+                                "DEBUG": false,
+                                "SECRET_KEY": "digital-spotter-dev-key-change-in-prod"
+                            },
+                            "FRONTEND": {
+                                "HOST": "0.0.0.0",
+                                "PORT": 8080,
+                                "STATIC_DIR": "frontend"
+                            },
+                            "PATHS": {
+                                "ROOT": "pathlib.Path(__file__).parent.parent",
+                                "MODELS_DIR": "ROOT / 'models'",
+                                "LOGS_DIR": "ROOT / 'logs'",
+                                "DATA_DIR": "ROOT / 'data'",
+                                "MODEL_TFLITE": "MODELS_DIR / 'model_quantized.tflite'",
+                                "SCALER_PKL": "MODELS_DIR / 'scaler.pkl'",
+                                "DATABASE": "DATA_DIR / 'sessions.db'"
+                            },
+                            "MEDIAPIPE": {
+                                "MODEL_COMPLEXITY": 2,
+                                "MIN_DETECTION_CONFIDENCE": 0.7,
+                                "MIN_TRACKING_CONFIDENCE": 0.7,
+                                "VISIBILITY_THRESHOLD": 0.15
+                            },
+                            "INFERENCE": {
+                                "SEQUENCE_LENGTH": 3,
+                                "NUM_FEATURES": 38,
+                                "DECISION_THRESHOLD": 0.5,
+                                "BAD_FORM_LABEL": "Bad Form",
+                                "GOOD_FORM_LABEL": "Good Form"
+                            },
+                            "REP_SEGMENTATION": {
+                                "SAVITZKY_GOLAY_WINDOW_RATIO": 0.4,
+                                "POLYNOMIAL_ORDER": 2,
+                                "PROMINENCE_THRESHOLD": 15,
+                                "MIN_INTER_PEAK_RATIO": 1.2,
+                                "PHASE_BOUNDARIES": [
+                                    0.35,
+                                    0.45
+                                ]
+                            },
+                            "EXERCISES": {
+                                "SQUAT": {
+                                    "id": 0,
+                                    "name": "Barbell Back Squat"
+                                },
+                                "DEADLIFT": {
+                                    "id": 1,
+                                    "name": "Conventional Deadlift"
+                                }
+                            },
+                            "MQTT": {
+                                "BROKER": "localhost",
+                                "PORT": 1883,
+                                "TOPIC": "digitalspotter/imu",
+                                "ENABLED": false
+                            },
+                            "LOGGING": {
+                                "LEVEL": "INFO",
+                                "FORMAT": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                                "FILE": "logs/app.log",
+                                "MAX_BYTES": 10485760,
+                                "BACKUP_COUNT": 5
+                            }
+                        }
+                    }
+                },
+                {
+                    "path": "config/constants.py",
+                    "purpose": "Immutable constants — joint names, angle indices, error categories",
+                    "content_spec": {
+                        "JOINT_NAMES": [
+                            "LEFT_HIP",
+                            "RIGHT_HIP",
+                            "LEFT_KNEE",
+                            "RIGHT_KNEE",
+                            "LEFT_ANKLE",
+                            "RIGHT_ANKLE",
+                            "TRUNK"
+                        ],
+                        "ANGLE_INDICES": {
+                            "LEFT_HIP": 0,
+                            "RIGHT_HIP": 1,
+                            "LEFT_KNEE": 2,
+                            "RIGHT_KNEE": 3,
+                            "LEFT_ANKLE": 4,
+                            "RIGHT_ANKLE": 5,
+                            "TRUNK": 6
+                        },
+                        "ERROR_CATEGORIES": {
+                            "0": "Good Form",
+                            "1": "Knee Valgus",
+                            "2": "Spinal Rounding",
+                            "3": "Excessive Forward Lean",
+                            "4": "Asymmetric Load",
+                            "5": "Hip Shift"
+                        },
+                        "REP_PHASES": {
+                            "1": "Eccentric/Descent",
+                            "2": "Isometric/Bottom",
+                            "3": "Concentric/Lockout"
+                        },
+                        "MEDIAPIPE_LANDMARKS": {
+                            "LEFT_HIP": 23,
+                            "RIGHT_HIP": 24,
+                            "LEFT_KNEE": 25,
+                            "RIGHT_KNEE": 26,
+                            "LEFT_ANKLE": 27,
+                            "RIGHT_ANKLE": 28,
+                            "LEFT_SHOULDER": 11,
+                            "RIGHT_SHOULDER": 12
+                        },
+                        "WEBSOCKET_EVENTS": {
+                            "POSE_DATA": "pose_data",
+                            "INFERENCE_RESULT": "inference_result",
+                            "REP_COMPLETE": "rep_complete",
+                            "SESSION_UPDATE": "session_update",
+                            "SYSTEM_STATUS": "system_status",
+                            "ERROR": "error"
+                        }
+                    }
+                }
+            ],
+            "test": {
+                "command": "cd ~/digital-spotter && python3 -c \"from config.config import Config; from config.constants import JOINT_NAMES; print('PHASE_1 PASS:', Config.API.PORT, JOINT_NAMES[0])\"",
+                "expected_output": "PHASE_1 PASS: 5000 LEFT_HIP"
+            }
+        },
+        {
+            "id": "PHASE_2",
+            "name": "Database Layer",
+            "description": "SQLite schema, models, and query helpers. Sessions, reps, angles, inference results all stored here.",
+            "estimated_time": "20 minutes",
+            "files_to_create": [
+                {
+                    "path": "database/schema.sql",
+                    "purpose": "SQLite schema — all tables defined here",
+                    "tables": [
+                        {
+                            "name": "sessions",
+                            "columns": [
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT",
+                                "exercise_id INTEGER NOT NULL",
+                                "exercise_name TEXT NOT NULL",
+                                "started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                                "ended_at TIMESTAMP",
+                                "total_reps INTEGER DEFAULT 0",
+                                "good_reps INTEGER DEFAULT 0",
+                                "bad_reps INTEGER DEFAULT 0",
+                                "notes TEXT"
+                            ]
+                        },
+                        {
+                            "name": "reps",
+                            "columns": [
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT",
+                                "session_id INTEGER REFERENCES sessions(id)",
+                                "rep_number INTEGER NOT NULL",
+                                "phase INTEGER NOT NULL",
+                                "timestamp_ms INTEGER NOT NULL",
+                                "left_hip_angle REAL",
+                                "right_hip_angle REAL",
+                                "left_knee_angle REAL",
+                                "right_knee_angle REAL",
+                                "left_ankle_angle REAL",
+                                "right_ankle_angle REAL",
+                                "trunk_angle REAL",
+                                "inference_label TEXT",
+                                "inference_confidence REAL",
+                                "landmark_data TEXT"
+                            ]
+                        },
+                        {
+                            "name": "system_log",
+                            "columns": [
+                                "id INTEGER PRIMARY KEY AUTOINCREMENT",
+                                "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                                "level TEXT",
+                                "message TEXT",
+                                "module TEXT"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "path": "database/db.py",
+                    "purpose": "Database connection manager — thread-safe SQLite access",
+                    "functions": [
+                        "get_connection()",
+                        "init_db()",
+                        "close_connection()"
+                    ]
+                },
+                {
+                    "path": "database/models.py",
+                    "purpose": "Data classes for Session, Rep, SystemLog",
+                    "classes": [
+                        "Session(dataclass)",
+                        "Rep(dataclass)",
+                        "SystemLog(dataclass)"
+                    ]
+                },
+                {
+                    "path": "database/queries.py",
+                    "purpose": "All SQL queries as named functions — no raw SQL anywhere else",
+                    "functions": [
+                        "create_session(exercise_id, exercise_name) -> int",
+                        "end_session(session_id) -> bool",
+                        "insert_rep(session_id, rep_data) -> int",
+                        "get_session(session_id) -> Session",
+                        "get_session_reps(session_id) -> list[Rep]",
+                        "get_recent_sessions(limit=10) -> list[Session]",
+                        "get_session_stats(session_id) -> dict"
+                    ]
+                }
+            ],
+            "test": {
+                "file": "tests/test_05_database/test_schema.py",
+                "test_cases": [
+                    "test_db_initializes_without_error",
+                    "test_can_create_session",
+                    "test_can_insert_rep",
+                    "test_can_query_session_stats"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_05_database/ -v"
+            }
+        },
+        {
+            "id": "PHASE_3",
+            "name": "Vision Pipeline",
+            "description": "MediaPipe BlazePose pose estimation, joint angle calculation, and rep segmentation. This is the core of the vision station.",
+            "estimated_time": "45 minutes",
+            "files_to_create": [
+                {
+                    "path": "vision/pose_engine.py",
+                    "purpose": "MediaPipe BlazePose initialization and landmark extraction",
+                    "class": "PoseEngine",
+                    "methods": [
+                        "__init__(self, config) — loads BlazePose Heavy model",
+                        "process_frame(self, frame: np.ndarray) -> PoseResult — runs inference on single frame",
+                        "get_landmarks(self, pose_result) -> dict — extracts 33 landmarks as {name: (x,y,z,visibility)}",
+                        "is_valid_frame(self, landmarks) -> bool — checks visibility thresholds",
+                        "draw_skeleton(self, frame, landmarks) -> np.ndarray — draws skeleton overlay on frame",
+                        "release(self) — cleanup"
+                    ],
+                    "placeholder_note": "TODO: PHASE_3 - Add BlazePose Heavy float16 weights path when model file is deployed"
+                },
+                {
+                    "path": "vision/angle_calculator.py",
+                    "purpose": "Compute 7 clinical joint angles from 3D landmark coordinates",
+                    "class": "AngleCalculator",
+                    "methods": [
+                        "calculate_angle(a, b, c) -> float — arctangent dot-product formula for 3-point joint vectors",
+                        "compute_all_angles(landmarks) -> dict[str, float] — returns all 7 angles",
+                        "compute_left_hip_flexion(landmarks) -> float",
+                        "compute_right_hip_flexion(landmarks) -> float",
+                        "compute_left_knee_flexion(landmarks) -> float",
+                        "compute_right_knee_flexion(landmarks) -> float",
+                        "compute_left_ankle_dorsiflexion(landmarks) -> float",
+                        "compute_right_ankle_dorsiflexion(landmarks) -> float",
+                        "compute_trunk_inclination(landmarks) -> float"
+                    ]
+                },
+                {
+                    "path": "vision/rep_segmenter.py",
+                    "purpose": "Detect repetitions and segment into 3 temporal phases using Savitzky-Golay smoothing",
+                    "class": "RepSegmenter",
+                    "methods": [
+                        "__init__(self, fps=30) — initializes angle buffer and smoothing params",
+                        "update(self, angles: dict) -> RepEvent|None — add frame angles, returns RepEvent if rep detected",
+                        "_smooth_signal(self, signal) -> np.ndarray — Savitzky-Golay filter",
+                        "_detect_peaks(self, signal) -> list[int] — find rep deep-points",
+                        "_assign_phase(self, frame_idx, rep_start, rep_end) -> int — 1/2/3",
+                        "reset(self) — clear buffer for new session"
+                    ]
+                },
+                {
+                    "path": "vision/frame_processor.py",
+                    "purpose": "Orchestrates the full frame processing pipeline: capture -> pose -> angles -> segmentation",
+                    "class": "FrameProcessor",
+                    "methods": [
+                        "__init__(self) — initializes PoseEngine, AngleCalculator, RepSegmenter",
+                        "process(self, frame) -> FrameResult — full pipeline for single frame",
+                        "start(self) — begin processing loop in background thread",
+                        "stop(self) — graceful shutdown",
+                        "get_latest(self) -> FrameResult — thread-safe latest result getter"
+                    ],
+                    "placeholder_note": "TODO: PHASE_7 - Replace frame source with direct libcamera capture instead of video file for production"
+                }
+            ],
+            "test": {
+                "files": [
+                    "tests/test_02_pose/test_mediapipe_init.py",
+                    "tests/test_02_pose/test_angle_calculation.py",
+                    "tests/test_02_pose/test_rep_segmentation.py"
+                ],
+                "test_cases": [
+                    "test_pose_engine_initializes",
+                    "test_angle_calculator_known_values — use hardcoded 90-degree vectors, assert angle == 90",
+                    "test_rep_segmenter_detects_rep — feed synthetic sine wave angles, assert 1 rep detected",
+                    "test_rep_segmenter_assigns_phases — assert 3 phases returned for 1 rep"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_02_pose/ -v"
+            }
+        },
+        {
+            "id": "PHASE_4",
+            "name": "Inference Pipeline",
+            "description": "TFLite LSTM runner, feature engineering matching training pipeline exactly, sequence buffer for 3-phase windowing.",
+            "estimated_time": "30 minutes",
+            "critical_note": "Feature engineering MUST exactly match the preprocessing pipeline from the paper. Same 38 features, same StandardScaler, same column order. Any mismatch = wrong predictions.",
+            "files_to_create": [
+                {
+                    "path": "inference/scaler_wrapper.py",
+                    "purpose": "Load and apply the joblib StandardScaler from training",
+                    "class": "ScalerWrapper",
+                    "methods": [
+                        "load(self, path) — loads scaler.pkl",
+                        "transform(self, features: np.ndarray) -> np.ndarray — applies same scaling as training",
+                        "is_loaded(self) -> bool"
+                    ],
+                    "placeholder_note": "TODO: PHASE_4 - Replace placeholder scaler with actual scaler.pkl exported from training notebook"
+                },
+                {
+                    "path": "inference/feature_engineer.py",
+                    "purpose": "Transforms raw angles + IMU data into the exact 38 features used in training",
+                    "class": "FeatureEngineer",
+                    "feature_groups": {
+                        "vision_xy_landmarks": "16 features — Vis_L/R_Hip/Knee/Shoulder/Ankle X and Y",
+                        "computed_angles": "7 features — bilateral mean + L-R asymmetry for hip/knee/ankle + trunk",
+                        "imu_raw": "6 features — IMU_Acc_X/Y/Z + IMU_Gyro_X/Y/Z (placeholder zeros until PHASE_6)",
+                        "bar_performance": "3 features — V_Bar_Velocity, P_Bar_Power, Smoothness_Jerk (placeholder zeros)",
+                        "context": "6 features — Rep_Phase, Exercise_ID, Load_kg, Subject_Height, Subject_Weight, FTR"
+                    },
+                    "methods": [
+                        "engineer(self, landmarks, angles, imu_data, context) -> np.ndarray — returns (38,) feature vector",
+                        "_compute_asymmetry_features(self, angles) -> np.ndarray — L-R difference features",
+                        "_compute_bilateral_mean(self, angles) -> np.ndarray — (L+R)/2 features",
+                        "_extract_landmark_xy(self, landmarks) -> np.ndarray — 16 XY coordinates"
+                    ]
+                },
+                {
+                    "path": "inference/sequence_buffer.py",
+                    "purpose": "Buffer to accumulate 3 phase feature vectors before running LSTM inference",
+                    "class": "SequenceBuffer",
+                    "methods": [
+                        "__init__(self, sequence_length=3) — fixed-size phase buffer",
+                        "push(self, phase_id, features) — add phase features",
+                        "is_ready(self) -> bool — True when all 3 phases collected",
+                        "get_sequence(self) -> np.ndarray — returns (3, 38) tensor",
+                        "reset(self) — clear for next rep"
+                    ]
+                },
+                {
+                    "path": "inference/lstm_runner.py",
+                    "purpose": "Load TFLite model and run inference on (3, 38) sequence",
+                    "class": "LSTMRunner",
+                    "methods": [
+                        "load(self, model_path, scaler_path) — loads .tflite and scaler.pkl",
+                        "predict(self, sequence: np.ndarray) -> InferenceResult — runs model, returns label + confidence",
+                        "is_loaded(self) -> bool",
+                        "_preprocess(self, sequence) -> np.ndarray — scale and reshape to (1, 3, 38)"
+                    ],
+                    "return_type": {
+                        "InferenceResult": {
+                            "label": "str — Good Form or Bad Form",
+                            "confidence": "float — sigmoid output 0.0-1.0",
+                            "is_bad_form": "bool — True if confidence >= 0.5",
+                            "latency_ms": "float — inference time in milliseconds"
+                        }
+                    },
+                    "placeholder_note": "TODO: PHASE_4 - Replace placeholder model with actual model_quantized.tflite from training. Until then, return mock InferenceResult with random confidence."
+                }
+            ],
+            "test": {
+                "files": [
+                    "tests/test_03_inference/test_model_load.py",
+                    "tests/test_03_inference/test_scaler_load.py",
+                    "tests/test_03_inference/test_sequence_buffer.py",
+                    "tests/test_03_inference/test_full_inference.py"
+                ],
+                "test_cases": [
+                    "test_sequence_buffer_fills_correctly",
+                    "test_sequence_buffer_resets",
+                    "test_feature_engineer_returns_38_features",
+                    "test_feature_engineer_asymmetry_calculation",
+                    "test_lstm_runner_placeholder_returns_result — mock model, assert InferenceResult returned",
+                    "test_inference_latency_under_25ms — assert latency_ms < 25"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_03_inference/ -v"
+            }
+        },
+        {
+            "id": "PHASE_5",
+            "name": "Flask API + WebSocket Server",
+            "description": "REST API for session management and control. WebSocket for real-time live data streaming to frontend.",
+            "estimated_time": "40 minutes",
+            "files_to_create": [
+                {
+                    "path": "api/app.py",
+                    "purpose": "Flask app factory — creates and configures the Flask application",
+                    "functions": [
+                        "create_app(config=None) -> Flask — factory function",
+                        "register_blueprints(app) — attaches routes",
+                        "register_socketio(app) — attaches WebSocket events",
+                        "register_error_handlers(app) — 404, 500, etc"
+                    ]
+                },
+                {
+                    "path": "api/routes.py",
+                    "purpose": "All REST API endpoints as Flask Blueprint",
+                    "endpoints": [
+                        {
+                            "method": "GET",
+                            "path": "/api/health",
+                            "purpose": "System health check",
+                            "returns": {
+                                "status": "ok|degraded|error",
+                                "camera": "bool",
+                                "model": "bool",
+                                "uptime_s": "int"
+                            }
+                        },
+                        {
+                            "method": "GET",
+                            "path": "/api/status",
+                            "purpose": "Full system status",
+                            "returns": {
+                                "streaming": "bool",
+                                "session_active": "bool",
+                                "current_session_id": "int|null",
+                                "fps": "float",
+                                "latency_ms": "float"
+                            }
+                        },
+                        {
+                            "method": "POST",
+                            "path": "/api/session/start",
+                            "body": {
+                                "exercise_id": "int",
+                                "notes": "str|optional"
+                            },
+                            "purpose": "Start a new training session",
+                            "returns": {
+                                "session_id": "int",
+                                "started_at": "str"
+                            }
+                        },
+                        {
+                            "method": "POST",
+                            "path": "/api/session/stop",
+                            "body": {
+                                "session_id": "int"
+                            },
+                            "purpose": "End current session and save",
+                            "returns": {
+                                "session_id": "int",
+                                "total_reps": "int",
+                                "good_reps": "int",
+                                "bad_reps": "int"
+                            }
+                        },
+                        {
+                            "method": "GET",
+                            "path": "/api/session/<session_id>",
+                            "purpose": "Get session details and rep history",
+                            "returns": {
+                                "session": "Session",
+                                "reps": "list[Rep]"
+                            }
+                        },
+                        {
+                            "method": "GET",
+                            "path": "/api/sessions",
+                            "purpose": "List recent sessions",
+                            "query_params": {
+                                "limit": "int default 10",
+                                "exercise_id": "int|optional"
+                            },
+                            "returns": {
+                                "sessions": "list[Session]"
+                            }
+                        },
+                        {
+                            "method": "POST",
+                            "path": "/api/inference/test",
+                            "purpose": "Test inference with dummy data — for development",
+                            "returns": {
+                                "label": "str",
+                                "confidence": "float",
+                                "latency_ms": "float"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "path": "api/socket_events.py",
+                    "purpose": "WebSocket event handlers and emitters using Flask-SocketIO",
+                    "events_received": [
+                        "connect — client connected",
+                        "disconnect — client disconnected",
+                        "start_stream — client requests live data",
+                        "stop_stream — client stops live data",
+                        "ping — heartbeat"
+                    ],
+                    "events_emitted": [
+                        "pose_data — {landmarks, angles, fps, timestamp_ms} every frame",
+                        "inference_result — {label, confidence, is_bad_form, rep_number} on rep complete",
+                        "rep_complete — {rep_number, phase, angles} when rep phase detected",
+                        "session_update — {total_reps, good_reps, bad_reps} on change",
+                        "system_status — {camera_ok, model_ok, fps, latency_ms} every 5s",
+                        "error — {code, message} on any error"
+                    ],
+                    "emit_rate": "pose_data emitted at max 30fps, throttled to avoid flooding"
+                },
+                {
+                    "path": "api/middleware.py",
+                    "purpose": "Request middleware — CORS, logging, rate limiting",
+                    "functions": [
+                        "cors_headers(response) — add CORS headers for local network access",
+                        "log_request() — log every API call with timing",
+                        "rate_limit() — simple in-memory rate limiter"
+                    ]
+                }
+            ],
+            "test": {
+                "files": [
+                    "tests/test_04_api/test_endpoints.py",
+                    "tests/test_04_api/test_websocket.py"
+                ],
+                "test_cases": [
+                    "test_health_endpoint_returns_200",
+                    "test_status_endpoint_returns_valid_schema",
+                    "test_session_start_returns_session_id",
+                    "test_session_stop_returns_stats",
+                    "test_session_get_returns_reps",
+                    "test_inference_test_endpoint_returns_result",
+                    "test_websocket_connects",
+                    "test_websocket_receives_system_status"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_04_api/ -v"
+            }
+        },
+        {
+            "id": "PHASE_6",
+            "name": "Production Frontend Dashboard",
+            "description": "Full production HTML dashboard. WebRTC video, canvas pose overlay, real-time angle charts, rep counter, form feedback, session management. All wired to WebSocket API.",
+            "estimated_time": "60 minutes",
+            "design_system": {
+                "colors": {
+                    "--bg": "#0a0c0f",
+                    "--surface": "#111418",
+                    "--surface-2": "#171b21",
+                    "--border": "#1e2328",
+                    "--accent": "#00e5ff",
+                    "--accent-dim": "rgba(0,229,255,0.1)",
+                    "--accent2": "#7b61ff",
+                    "--good": "#00c853",
+                    "--bad": "#ff4d4d",
+                    "--warn": "#ffa726",
+                    "--text": "#e8eaed",
+                    "--muted": "#5f6368"
+                },
+                "fonts": {
+                    "body": "Space Grotesk",
+                    "mono": "Space Mono"
+                },
+                "breakpoints": {
+                    "mobile": "640px",
+                    "tablet": "1024px",
+                    "desktop": "1440px"
+                }
+            },
+            "layout": {
+                "structure": "CSS Grid — 3 column layout on desktop, collapsible on tablet/mobile",
+                "columns": {
+                    "left_sidebar": {
+                        "width": "240px",
+                        "sections": [
+                            "Session Control Panel — exercise selector, start/stop buttons, session timer",
+                            "Rep Counter — large rep number display, good/bad split",
+                            "Current Phase Indicator — Eccentric/Isometric/Concentric with animation",
+                            "Form Alert — GOOD FORM / BAD FORM with confidence bar and error category"
+                        ]
+                    },
+                    "main_content": {
+                        "sections": [
+                            "Video Feed — WebRTC stream in <video> tag, 16:9 aspect ratio",
+                            "Canvas Overlay — transparent <canvas> over video for skeleton drawing",
+                            "Feedback Bar — horizontal progress bar showing form confidence",
+                            "Connection Status Bar — latency, fps, stream quality indicators"
+                        ]
+                    },
+                    "right_sidebar": {
+                        "width": "260px",
+                        "sections": [
+                            "Joint Angles Panel — 7 angle readouts with min/max/current and color coding",
+                            "Live Angle Chart — Chart.js line chart, last 60 frames, knee flexion highlighted",
+                            "Session History — last 5 sessions with quick stats",
+                            "System Panel — Pi health, camera status, model status, uptime"
+                        ]
+                    }
+                }
+            },
+            "files_to_create": [
+                {
+                    "path": "frontend/index.html",
+                    "purpose": "Shell HTML — imports CSS and JS, defines layout grid, no inline styles or scripts",
+                    "note": "Loads css/main.css, css/components.css, js/main.js as modules"
+                },
+                {
+                    "path": "frontend/css/main.css",
+                    "purpose": "Global styles, CSS variables, layout grid, typography",
+                    "sections": [
+                        "CSS Variables",
+                        "Reset",
+                        "Typography",
+                        "Layout Grid",
+                        "Responsive Breakpoints"
+                    ]
+                },
+                {
+                    "path": "frontend/css/components.css",
+                    "purpose": "Individual UI component styles — cards, buttons, badges, charts",
+                    "components": [
+                        "TopBar",
+                        "Sidebar",
+                        "VideoPanel",
+                        "CanvasOverlay",
+                        "AngleCard",
+                        "RepCounter",
+                        "FormAlert",
+                        "PhaseIndicator",
+                        "ChartPanel",
+                        "SessionCard",
+                        "SystemStatus",
+                        "ControlPanel"
+                    ]
+                },
+                {
+                    "path": "frontend/css/animations.css",
+                    "purpose": "CSS animations — pulse live dot, phase transitions, alert flash, skeleton draw",
+                    "animations": [
+                        "pulse",
+                        "fadeIn",
+                        "slideUp",
+                        "alertFlash",
+                        "phaseTransition",
+                        "scanline"
+                    ]
+                },
+                {
+                    "path": "frontend/js/stream.js",
+                    "purpose": "WebRTC connection manager — connects to mediamtx WHEP endpoint",
+                    "class": "StreamManager",
+                    "methods": [
+                        "connect(host, port, path) — establish WebRTC peer connection",
+                        "disconnect() — close peer connection gracefully",
+                        "onPlaying(callback) — fired when video starts",
+                        "onStats(callback) — fired every 1.5s with RTCStats data",
+                        "reconnect() — close and reconnect",
+                        "_createPeerConnection() — RTCPeerConnection with zero-latency settings",
+                        "_negotiateWhep(offer) — WHEP protocol SDP exchange"
+                    ]
+                },
+                {
+                    "path": "frontend/js/websocket.js",
+                    "purpose": "Socket.IO client — connects to Flask-SocketIO API",
+                    "class": "APISocket",
+                    "methods": [
+                        "connect(host, port) — connect to Flask-SocketIO",
+                        "on(event, callback) — register event handler",
+                        "emit(event, data) — send event to server",
+                        "startStream() — request live pose data",
+                        "stopStream() — stop live data",
+                        "isConnected() -> bool"
+                    ]
+                },
+                {
+                    "path": "frontend/js/pose_overlay.js",
+                    "purpose": "Canvas overlay — draws BlazePose skeleton on top of video",
+                    "class": "PoseOverlay",
+                    "methods": [
+                        "init(videoEl, canvasEl) — size canvas to match video",
+                        "draw(landmarks) — draw skeleton, joints, connections",
+                        "drawAngleAnnotation(joint, angle) — draw angle value next to joint",
+                        "clear() — clear canvas between frames",
+                        "setVisible(bool) — toggle overlay on/off",
+                        "_scaleToCanvas(x, y) — convert normalized coords to canvas px"
+                    ],
+                    "skeleton_connections": "Use MediaPipe Pose standard 32 connections",
+                    "placeholder_note": "TODO: PHASE_3 - landmarks from WebSocket will replace placeholder random data"
+                },
+                {
+                    "path": "frontend/js/charts.js",
+                    "purpose": "Chart.js angle time series chart — rolling 60-frame window",
+                    "class": "AngleChart",
+                    "methods": [
+                        "init(canvasEl) — create Chart.js line chart",
+                        "update(angles) — push new frame angles, shift oldest",
+                        "highlight(jointName) — bold the selected joint line",
+                        "reset() — clear all data",
+                        "setWindow(frames) — change rolling window size"
+                    ],
+                    "chart_config": {
+                        "type": "line",
+                        "datasets": "one line per joint angle (7 total)",
+                        "x_axis": "frame number, rolling 60 frames",
+                        "y_axis": "angle in degrees 0-180",
+                        "animation": "disabled for performance",
+                        "legend": "compact, toggleable"
+                    }
+                },
+                {
+                    "path": "frontend/js/ui_controller.js",
+                    "purpose": "Orchestrates all UI components — connects stream, websocket, overlay, charts",
+                    "class": "UIController",
+                    "methods": [
+                        "init() — boot sequence: connect stream, connect websocket, init overlay, init chart",
+                        "onPoseData(data) — update overlay, charts, angle cards",
+                        "onInferenceResult(result) — update form alert, rep counter",
+                        "onRepComplete(rep) — increment counter, log to history",
+                        "onSessionUpdate(stats) — update session panel",
+                        "onSystemStatus(status) — update system panel",
+                        "startSession(exerciseId) — API call + UI state change",
+                        "stopSession() — API call + show summary modal",
+                        "toggleOverlay() — show/hide skeleton",
+                        "toggleSidebar(side) — collapse/expand sidebars"
+                    ]
+                },
+                {
+                    "path": "frontend/js/main.js",
+                    "purpose": "Entry point — instantiates UIController and boots the app",
+                    "content": "import UIController; const app = new UIController(); app.init();"
+                }
+            ],
+            "placeholder_data": {
+                "pose_data": {
+                    "event": "pose_data",
+                    "structure": {
+                        "landmarks": {},
+                        "angles": {
+                            "LEFT_HIP": 0,
+                            "RIGHT_HIP": 0,
+                            "LEFT_KNEE": 90,
+                            "RIGHT_KNEE": 90,
+                            "LEFT_ANKLE": 70,
+                            "RIGHT_ANKLE": 70,
+                            "TRUNK": 15
+                        },
+                        "fps": 30,
+                        "timestamp_ms": 0
+                    },
+                    "note": "UI must render cleanly with this placeholder data before real vision pipeline is connected"
+                },
+                "inference_result": {
+                    "event": "inference_result",
+                    "structure": {
+                        "label": "Good Form",
+                        "confidence": 0.87,
+                        "is_bad_form": false,
+                        "rep_number": 1,
+                        "latency_ms": 18.3
+                    },
+                    "note": "Form alert and confidence bar must render correctly with this placeholder"
+                }
+            },
+            "test": {
+                "files": [
+                    "tests/test_06_frontend/test_ui_load.py"
+                ],
+                "test_cases": [
+                    "test_index_html_served_on_port_8080",
+                    "test_all_js_files_accessible",
+                    "test_all_css_files_accessible",
+                    "test_webrtc_stream_connects — check mediamtx is running and WHEP responds"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_06_frontend/ -v"
+            }
+        },
+        {
+            "id": "PHASE_7",
+            "name": "Integration — Connect All Modules",
+            "description": "Wire vision pipeline to API. Wire inference to rep events. Wire WebSocket to frontend. Run full pipeline end-to-end with placeholder model.",
+            "estimated_time": "30 minutes",
+            "integration_points": [
+                {
+                    "from": "vision/frame_processor.py",
+                    "to": "api/socket_events.py",
+                    "how": "FrameProcessor runs in background thread, on each frame result calls socketio.emit('pose_data', result)"
+                },
+                {
+                    "from": "vision/rep_segmenter.py",
+                    "to": "inference/sequence_buffer.py",
+                    "how": "On phase complete, RepSegmenter calls SequenceBuffer.push(phase_id, features)"
+                },
+                {
+                    "from": "inference/sequence_buffer.py",
+                    "to": "inference/lstm_runner.py",
+                    "how": "When buffer.is_ready(), call lstm_runner.predict(buffer.get_sequence())"
+                },
+                {
+                    "from": "inference/lstm_runner.py",
+                    "to": "api/socket_events.py",
+                    "how": "InferenceResult emitted via socketio.emit('inference_result', result)"
+                },
+                {
+                    "from": "database/queries.py",
+                    "to": "api/routes.py",
+                    "how": "All API endpoints use queries.py functions exclusively"
+                }
+            ],
+            "test": {
+                "files": [
+                    "tests/test_07_integration/test_full_pipeline.py"
+                ],
+                "test_cases": [
+                    "test_frame_triggers_pose_data_event",
+                    "test_rep_triggers_inference",
+                    "test_inference_result_saved_to_database",
+                    "test_api_session_flow_end_to_end"
+                ],
+                "command": "cd ~/digital-spotter && python3 -m pytest tests/test_07_integration/ -v"
+            }
+        },
+        {
+            "id": "PHASE_8",
+            "name": "IMU Placeholder Layer",
+            "description": "Stub IMU module so the rest of the system is IMU-aware but not IMU-dependent. When ESP32-S3 is connected, just activate the MQTT subscriber.",
+            "estimated_time": "20 minutes",
+            "files_to_create": [
+                {
+                    "path": "imu/mqtt_subscriber.py",
+                    "purpose": "MQTT subscriber for ESP32-S3 IMU data",
+                    "class": "IMUSubscriber",
+                    "methods": [
+                        "connect(broker, port, topic) — connect to MQTT broker",
+                        "on_message(client, userdata, msg) — parse IMU packet",
+                        "get_latest() -> IMUReading|None — thread-safe latest reading getter",
+                        "is_connected() -> bool",
+                        "disconnect()"
+                    ],
+                    "placeholder_note": "TODO: PHASE_8 - Set config.MQTT.ENABLED = True and configure ESP32-S3 MQTT broker IP when hardware is ready"
+                },
+                {
+                    "path": "imu/imu_processor.py",
+                    "purpose": "Parse and process raw IMU packets from ESP32-S3",
+                    "class": "IMUProcessor",
+                    "methods": [
+                        "parse_packet(raw: bytes) -> IMUReading — parse tab-delimited MQTT payload",
+                        "apply_low_pass_filter(reading) -> IMUReading — 21Hz on-chip LPF",
+                        "winsorize(reading) -> IMUReading — 3xIQR spike removal",
+                        "compute_derived_features(readings) -> dict — V_bar, P_bar, Smoothness_Jerk per phase"
+                    ]
+                },
+                {
+                    "path": "imu/fusion_engine.py",
+                    "purpose": "Merge vision and IMU data at 100ms tolerance — merge-as-of join",
+                    "class": "FusionEngine",
+                    "methods": [
+                        "push_vision(timestamp_ms, vision_features) — add vision data point",
+                        "push_imu(timestamp_ms, imu_features) — add IMU data point",
+                        "get_fused(tolerance_ms=100) -> FusedFeatures|None — merge-as-of join",
+                        "reset() — clear buffers"
+                    ],
+                    "placeholder_note": "TODO: PHASE_6 - FusionEngine returns vision-only features until IMU is connected. IMU features are zeros."
+                }
+            ]
+        },
+        {
+            "id": "PHASE_9",
+            "name": "Scripts and DevOps",
+            "description": "Management scripts for easy Pi control. systemd services. Deploy script from laptop. Health dashboard.",
+            "estimated_time": "25 minutes",
+            "files_to_create": [
+                {
+                    "path": "scripts/start_all.sh",
+                    "purpose": "Start all services: mediamtx + Flask API + frontend server",
+                    "content_spec": "Kill existing processes, start mediamtx in background, start Flask in background, start python http.server, print URLs"
+                },
+                {
+                    "path": "scripts/stop_all.sh",
+                    "purpose": "Gracefully stop all services",
+                    "content_spec": "pkill mediamtx, pkill flask, pkill python3 http.server, confirm stopped"
+                },
+                {
+                    "path": "scripts/check_status.sh",
+                    "purpose": "Print status of all services, URLs, camera, model files",
+                    "content_spec": "Check each process, curl /api/health, check file existence, print summary table"
+                },
+                {
+                    "path": "scripts/deploy.sh",
+                    "purpose": "Run from LAPTOP via SSH to push code changes and restart services",
+                    "content_spec": "rsync ~/digital-spotter/ to Pi, SSH in and restart services, tail logs for 5s",
+                    "usage": "Run from LAPTOP: bash deploy.sh 192.168.1.8 bimalawijekoon"
+                },
+                {
+                    "path": "scripts/install_deps.sh",
+                    "purpose": "Fresh install of all system dependencies on a new Pi",
+                    "content_spec": "apt installs, pip installs, systemd service setup, directory creation"
+                }
+            ],
+            "systemd_services": [
+                {
+                    "name": "digitalspotter-stream.service",
+                    "purpose": "mediamtx camera stream",
+                    "exec": "/home/bimalawijekoon/mediamtx -c /home/bimalawijekoon/digital-spotter/mediamtx.yml",
+                    "restart": "always"
+                },
+                {
+                    "name": "digitalspotter-api.service",
+                    "purpose": "Flask API + WebSocket server",
+                    "exec": "python3 /home/bimalawijekoon/digital-spotter/api/app.py",
+                    "restart": "always"
+                },
+                {
+                    "name": "digitalspotter-ui.service",
+                    "purpose": "Frontend static file server",
+                    "exec": "python3 -m http.server 8080 --directory /home/bimalawijekoon/digital-spotter/frontend",
+                    "restart": "always"
+                }
+            ]
+        },
+        {
+            "id": "PHASE_10",
+            "name": "Testing Suite Completion",
+            "description": "Complete all test files. Run full test suite. Each subsystem independently testable.",
+            "test_philosophy": "Test each system in isolation first, then integration. Never test two unknowns at once.",
+            "test_sequence": [
+                {
+                    "order": 1,
+                    "suite": "test_01_camera",
+                    "purpose": "Verify camera hardware, detect camera, check FPS",
+                    "command": "pytest tests/test_01_camera/ -v"
+                },
+                {
+                    "order": 2,
+                    "suite": "test_02_pose",
+                    "purpose": "Verify MediaPipe loads, angles compute correctly, reps detected",
+                    "command": "pytest tests/test_02_pose/ -v"
+                },
+                {
+                    "order": 3,
+                    "suite": "test_03_inference",
+                    "purpose": "Verify model loads, features correct shape, latency under 25ms",
+                    "command": "pytest tests/test_03_inference/ -v"
+                },
+                {
+                    "order": 4,
+                    "suite": "test_04_api",
+                    "purpose": "Verify all endpoints return correct schemas, WebSocket connects",
+                    "command": "pytest tests/test_04_api/ -v"
+                },
+                {
+                    "order": 5,
+                    "suite": "test_05_database",
+                    "purpose": "Verify schema, CRUD operations, session flow",
+                    "command": "pytest tests/test_05_database/ -v"
+                },
+                {
+                    "order": 6,
+                    "suite": "test_06_frontend",
+                    "purpose": "Verify HTML served, JS/CSS accessible, WebRTC connects",
+                    "command": "pytest tests/test_06_frontend/ -v"
+                },
+                {
+                    "order": 7,
+                    "suite": "test_07_integration",
+                    "purpose": "Verify full pipeline camera-to-feedback works end to end",
+                    "command": "pytest tests/test_07_integration/ -v"
+                },
+                {
+                    "order": 8,
+                    "suite": "ALL",
+                    "purpose": "Full system test",
+                    "command": "pytest tests/ -v --tb=short 2>&1 | tee logs/test_results.log"
+                }
+            ]
+        }
+    ],
+    "future_phases": {
+        "PHASE_11": "Firebase integration — sync sessions to cloud, React dashboard at firebase URL",
+        "PHASE_12": "ESP32-S3 live MQTT integration — full multimodal fusion as per paper",
+        "PHASE_13": "Multiclass LSTM — predict specific error type (Knee Valgus, Spinal Rounding etc)",
+        "PHASE_14": "Audio feedback — text-to-speech on Pi using pyttsx3 or espeak",
+        "PHASE_15": "Mobile PWA — installable Progressive Web App for phone viewing",
+        "PHASE_16": "NGINX reverse proxy — single port 80, proper SSL, domain name on local network"
+    },
+    "quick_reference": {
+        "start_everything": "cd ~/digital-spotter && bash scripts/start_all.sh",
+        "stop_everything": "cd ~/digital-spotter && bash scripts/stop_all.sh",
+        "check_status": "cd ~/digital-spotter && bash scripts/check_status.sh",
+        "run_tests": "cd ~/digital-spotter && python3 -m pytest tests/ -v",
+        "view_logs": "tail -f ~/digital-spotter/logs/app.log",
+        "restart_stream": "sudo systemctl restart digitalspotter-stream",
+        "restart_api": "sudo systemctl restart digitalspotter-api",
+        "ssh_into_pi": "ssh bimalawijekoon@192.168.1.8",
+        "deploy_from_laptop": "bash ~/digital-spotter/scripts/deploy.sh",
+        "open_dashboard": "http://192.168.1.8:8080",
+        "open_api": "http://192.168.1.8:5000/api/health",
+        "open_stream": "http://192.168.1.8:8889/picam"
+    },
+    "agent_start_command": "Begin with PHASE_0. Create the directory structure first. Then proceed phase by phase. Do not skip any phase. Do not mark a phase complete until its test passes. After all phases complete, run the full test suite and confirm all tests pass. Then print the QUICK REFERENCE table so the user can access everything immediately."
+}

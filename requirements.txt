@@ -1,0 +1,26 @@
+# Digital Spotter - Python Dependencies
+# Edge-based multimodal AI posture correction system
+# Target: Raspberry Pi 4B 8GB RAM
+# Author: bimalawijekoon
+# Version: 1.0.0
+
+# Web framework
+flask==3.0.3
+flask-socketio==5.3.6
+flask-cors==4.0.1
+eventlet==0.36.1
+
+# Computer vision & pose estimation
+mediapipe==0.10.14
+opencv-python-headless==4.10.0.84
+
+# ML inference
+numpy==1.26.4
+joblib==1.4.2
+
+# IoT / sensor
+paho-mqtt==2.1.0
+
+# Testing
+pytest==8.2.2
+requests==2.32.3
