@@ -11,8 +11,8 @@ flask-cors==4.0.1
 eventlet==0.36.1
 
 # Computer vision & pose estimation
-mediapipe==0.10.14
-opencv-python-headless==4.10.0.84
+mediapipe
+opencv-python-headless
 
 # ML inference — tflite-runtime runs the real LSTM .tflite model on Pi
 # Install via: pip install --break-system-packages tflite-runtime
