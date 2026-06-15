@@ -1,6 +1,6 @@
 # Digital Spotter - Python Dependencies
 # Edge-based multimodal AI posture correction system
-# Target: Raspberry Pi 4B 8GB RAM
+# Target: Raspberry Pi 4B 8GB RAM | Raspberry Pi OS Bookworm 64-bit (aarch64)
 # Author: bimalawijekoon
 # Version: 1.0.0
 
@@ -14,7 +14,15 @@ eventlet==0.36.1
 mediapipe==0.10.14
 opencv-python-headless==4.10.0.84
 
-# ML inference
+# ML inference — tflite-runtime runs the real LSTM .tflite model on Pi
+# Install via: pip install --break-system-packages tflite-runtime
+# (Wheels for aarch64/Python3.11 served from piwheels.org)
+tflite-runtime
+
+# Signal processing — Savitzky-Golay filter for rep phase segmentation
+scipy==1.13.1
+
+# Serialisation — scaler.pkl loading
 numpy==1.26.4
 joblib==1.4.2
 
