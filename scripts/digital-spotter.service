@@ -1,0 +1,33 @@
+[Unit]
+Description=Digital Spotter AI Posture Coach Backend
+Documentation=https://github.com/BimalaWijekoon/Digital-Spotter
+After=network.target mediamtx.service
+Wants=mediamtx.service
+
+[Service]
+Type=simple
+User=bimalawijekoon
+WorkingDirectory=/home/bimalawijekoon/digital-spotter
+
+# Start the backend server
+ExecStart=/usr/bin/python3 /home/bimalawijekoon/digital-spotter/scripts/run_server.py
+
+# Restart automatically if it crashes
+Restart=on-failure
+RestartSec=5
+
+# Give it 30s to fully start before systemd considers it failed
+TimeoutStartSec=30
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=DS_API_HOST=0.0.0.0
+Environment=DS_API_PORT=5000
+
+# Log to journald (view with: journalctl -u digital-spotter -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=digital-spotter
+
+[Install]
+WantedBy=multi-user.target

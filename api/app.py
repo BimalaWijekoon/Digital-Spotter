@@ -72,6 +72,10 @@ def create_app(config=None):
     # Register error handlers
     register_error_handlers(app)
 
+    @app.route("/")
+    def index():
+        return app.send_static_file("index.html")
+
     # Initialize SocketIO
     socketio.init_app(
         app,
