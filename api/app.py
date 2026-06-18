@@ -50,11 +50,7 @@ def create_app(config=None):
     Side Effects:
         Initializes database, registers blueprints and error handlers.
     """
-    app = Flask(
-        __name__,
-        static_folder=str(Config.PATHS.FRONTEND_DIR),
-        static_url_path="",
-    )
+    app = Flask(__name__)
 
     app.config["SECRET_KEY"] = Config.API.SECRET_KEY
     app.config["DEBUG"] = Config.API.DEBUG
@@ -74,7 +70,7 @@ def create_app(config=None):
 
     @app.route("/")
     def index():
-        return app.send_static_file("index.html")
+        return {"message": "Dashboard moved to Vercel. This Pi serves the API and WebSocket only."}, 200
 
     # Initialize SocketIO
     socketio.init_app(
