@@ -1,15 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Digital Spotter — AI-powered real-time posture correction for compound barbell lifts">
+    <meta name="description"
+        content="Digital Spotter — AI-powered real-time posture correction for compound barbell lifts">
     <title>Digital Spotter — AI Posture Coach</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -22,16 +26,17 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/animations.css">
 </head>
+
 <body>
     <!-- ─── Top Bar ─── -->
     <header class="topbar" id="topbar">
         <div class="topbar__brand">
             <div class="topbar__logo">
                 <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                    <circle cx="14" cy="14" r="12" stroke="var(--accent)" stroke-width="2"/>
-                    <circle cx="14" cy="14" r="5" fill="var(--accent)"/>
-                    <line x1="14" y1="2" x2="14" y2="8" stroke="var(--accent)" stroke-width="2"/>
-                    <line x1="14" y1="20" x2="14" y2="26" stroke="var(--accent)" stroke-width="2"/>
+                    <circle cx="14" cy="14" r="12" stroke="var(--accent)" stroke-width="2" />
+                    <circle cx="14" cy="14" r="5" fill="var(--accent)" />
+                    <line x1="14" y1="2" x2="14" y2="8" stroke="var(--accent)" stroke-width="2" />
+                    <line x1="14" y1="20" x2="14" y2="26" stroke="var(--accent)" stroke-width="2" />
                 </svg>
             </div>
             <h1 class="topbar__title">Digital Spotter</h1>
@@ -130,23 +135,25 @@
                 <div class="video-overlay-controls">
                     <button class="btn-icon" id="btn-toggle-overlay" title="Toggle Skeleton">
                         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                            <circle cx="10" cy="4" r="2.5"/><line x1="10" y1="6.5" x2="10" y2="13" stroke="currentColor" stroke-width="1.5"/>
-                            <line x1="5" y1="9" x2="15" y2="9" stroke="currentColor" stroke-width="1.5"/>
-                            <line x1="10" y1="13" x2="6" y2="18" stroke="currentColor" stroke-width="1.5"/>
-                            <line x1="10" y1="13" x2="14" y2="18" stroke="currentColor" stroke-width="1.5"/>
+                            <circle cx="10" cy="4" r="2.5" />
+                            <line x1="10" y1="6.5" x2="10" y2="13" stroke="currentColor" stroke-width="1.5" />
+                            <line x1="5" y1="9" x2="15" y2="9" stroke="currentColor" stroke-width="1.5" />
+                            <line x1="10" y1="13" x2="6" y2="18" stroke="currentColor" stroke-width="1.5" />
+                            <line x1="10" y1="13" x2="14" y2="18" stroke="currentColor" stroke-width="1.5" />
                         </svg>
                     </button>
                     <button class="btn-icon" id="btn-fullscreen" title="Fullscreen">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4"/>
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                            stroke-width="1.5">
+                            <path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" />
                         </svg>
                     </button>
                 </div>
                 <div class="video-no-signal" id="no-signal">
                     <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--muted)" stroke-width="2">
-                        <rect x="6" y="10" width="36" height="24" rx="3"/>
-                        <circle cx="24" cy="22" r="6"/>
-                        <line x1="6" y1="38" x2="42" y2="38"/>
+                        <rect x="6" y="10" width="36" height="24" rx="3" />
+                        <circle cx="24" cy="22" r="6" />
+                        <line x1="6" y1="38" x2="42" y2="38" />
                     </svg>
                     <span>No Camera Signal</span>
                     <span class="video-no-signal__sub">Waiting for WebRTC stream…</span>
@@ -242,6 +249,11 @@
     </main>
 
     <!-- Scripts (non-module for compatibility) -->
+    <!-- Pi backend host config — edit this one line when deploying the
+         dashboard somewhere other than the Pi itself (e.g. Vercel).
+         Use the Pi's Tailscale address so it works from any network. -->
+    <script>window.DS_PI_HOST = '100.84.40.18';</script>
+
     <script src="js/stream.js"></script>
     <script src="js/websocket.js"></script>
     <script src="js/pose_overlay.js"></script>
@@ -249,4 +261,5 @@
     <script src="js/ui_controller.js"></script>
     <script src="js/main.js"></script>
 </body>
+
 </html>

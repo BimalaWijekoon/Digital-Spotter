@@ -18,8 +18,13 @@ class UIController {
     }
 
     init() {
-        // Detect server host — same host as the page, or default Pi IP
-        const host = window.location.hostname || '192.168.1.8';
+        // Pi backend host — set explicitly via window.DS_PI_HOST (injected by
+        // a small inline <script> in index.html) so the dashboard can be
+        // hosted on a completely different domain (e.g. Vercel) while still
+        // talking to the Pi over its Tailscale address.
+        // Falls back to window.location.hostname for the case where Flask
+        // is still serving the dashboard directly from the Pi itself.
+        const host = window.DS_PI_HOST || window.location.hostname || '100.84.40.18';
         const apiPort = 5000;
         const streamPort = 8889;
         const streamPath = 'picam';
@@ -211,7 +216,7 @@ class UIController {
         document.getElementById('btn-fullscreen').addEventListener('click', () => {
             const container = document.getElementById('video-container');
             if (document.fullscreenElement) document.exitFullscreen();
-            else container.requestFullscreen().catch(() => {});
+            else container.requestFullscreen().catch(() => { });
         });
     }
 

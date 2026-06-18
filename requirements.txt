@@ -14,10 +14,6 @@ eventlet==0.36.1
 mediapipe
 opencv-python-headless
 
-# ML inference — tflite-runtime runs the real LSTM .tflite model on Pi
-# Install via: pip install --break-system-packages tflite-runtime
-# (Wheels for aarch64/Python3.11 served from piwheels.org)
-tflite-runtime
 
 # Signal processing — Savitzky-Golay filter for rep phase segmentation
 scipy==1.13.1
