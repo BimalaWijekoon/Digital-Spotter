@@ -34,7 +34,7 @@ class TestConfig:
         assert Config.CAMERA.HEIGHT == 720
 
     def test_inference_settings(self):
-        assert Config.INFERENCE.NUM_FEATURES == 38
+        assert Config.INFERENCE.NUM_FEATURES == 40
         assert Config.INFERENCE.SEQUENCE_LENGTH == 3
 
     def test_exercise_name_lookup(self):
@@ -59,4 +59,4 @@ class TestConstants:
         assert WEBSOCKET_EVENTS["POSE_DATA"] == "pose_data"
 
     def test_total_features(self):
-        assert TOTAL_FEATURES == 38
+        assert TOTAL_FEATURES == 40

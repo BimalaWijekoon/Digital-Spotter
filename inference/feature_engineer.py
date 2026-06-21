@@ -1,10 +1,11 @@
 """
 inference/feature_engineer.py
-Purpose: Transforms raw angles + IMU data into the exact 38 features
-         used in training. Feature order MUST match training pipeline.
+Purpose: Transforms raw angles + IMU data into the exact 40 features
+         used in v4 training. Feature order MUST match FEATURE_ORDER
+         in config/constants.py exactly.
 Author: bimalawijekoon
-Version: 1.0.0
-Last Modified: 2026-06-15
+Version: 2.0.0
+Last Modified: 2026-06-20
 """
 
 import logging
@@ -15,20 +16,27 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.constants import TOTAL_FEATURES, FEATURE_ORDER
+from config.constants import (
+    TOTAL_FEATURES, FEATURE_ORDER,
+    NUM_LANDMARK_XY_FEATURES, NUM_IMU_RAW_FEATURES, NUM_BAR_FEATURES,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class FeatureEngineer:
-    """Transform raw pose/IMU data into the 38-feature training vector.
+    """Transform raw pose/IMU data into the 40-feature v4 training vector.
 
-    Feature groups (in order):
-        1. Vision XY landmarks (16): L/R Hip/Knee/Shoulder/Ankle X and Y
-        2. Computed angles (7): bilateral mean + L-R asymmetry + trunk
-        3. IMU raw (6): Acc XYZ + Gyro XYZ (zeros until ESP32 connected)
-        4. Bar performance (3): Velocity, Power, Jerk (zeros until IMU)
-        5. Context (6): Phase, ExID, Load, Height, Weight, FTR
+    Feature groups (in order, see FEATURE_ORDER for exact field names):
+        1. Context (5): Height, Weight, ExerciseID, RepPhase, Load
+        2. Vision XY landmarks (16): L/R Hip/Knee/Shoulder/Ankle X and Y
+        3. Trunk angle (1): trunk inclination only — raw L/R angles dropped
+        4. IMU raw (6): Acc XYZ + Gyro XYZ (mock until real ESP32-S3 lands)
+        5. Bar performance (3): Velocity, Power, Jerk (mock until real IMU)
+        6. Asymmetry (3): Hip/Knee/Ankle |L-R|, replaces raw L/R angle pairs
+        7. Engineered (4): IMU_Acc_Magnitude, Knee_Hip_Coupling_L/R,
+           Velocity_Decel_Ratio
+        8. Subject (2): Femur_Tibia_Ratio, BMI (manual per-session input)
     """
 
     # Landmarks used for XY extraction (order matters!)
