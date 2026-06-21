@@ -4,8 +4,6 @@ __pycache__/
 *.pyd
 logs/*.log
 data/*.db
-*.tflite
-*.pkl
 .env
 venv/
 .vscode/
