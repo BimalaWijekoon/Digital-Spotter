@@ -90,18 +90,36 @@ WEBSOCKET_EVENTS = {
 # ──────────────────────────────────────────────────────────────────────
 # Feature engineering constants
 # ──────────────────────────────────────────────────────────────────────
-NUM_LANDMARK_XY_FEATURES = 16  # 8 landmarks x 2 (X, Y)
-NUM_ANGLE_FEATURES = 7         # 7 joint angles
-NUM_IMU_RAW_FEATURES = 6      # Acc XYZ + Gyro XYZ
-NUM_BAR_FEATURES = 3          # Velocity, Power, Jerk
-NUM_CONTEXT_FEATURES = 6      # Phase, ExID, Load, Height, Weight, FTR
+NUM_CONTEXT_FEATURES = 5          # Height, Weight, ExerciseID, RepPhase, Load
+NUM_LANDMARK_XY_FEATURES = 16     # 8 landmarks x (X, Y) — unchanged
+NUM_TRUNK_ANGLE_FEATURES = 1      # Trunk inclination only — raw L/R angles dropped
+NUM_IMU_RAW_FEATURES = 6          # Acc XYZ + Gyro XYZ — unchanged
+NUM_BAR_FEATURES = 3              # Velocity, Power, Jerk — unchanged
+NUM_ASYMMETRY_FEATURES = 3        # Hip, Knee, Ankle |L-R| — replaces raw L/R angle pairs
+NUM_ENGINEERED_FEATURES = 4       # IMU_Acc_Magnitude, Knee_Hip_Coupling_L, Knee_Hip_Coupling_R, Velocity_Decel_Ratio
+NUM_SUBJECT_FEATURES = 2          # Femur_Tibia_Ratio, BMI
 TOTAL_FEATURES = (
-    NUM_LANDMARK_XY_FEATURES
-    + NUM_ANGLE_FEATURES
-    + NUM_IMU_RAW_FEATURES
-    + NUM_BAR_FEATURES
-    + NUM_CONTEXT_FEATURES
-)  # = 38
+    NUM_CONTEXT_FEATURES + NUM_LANDMARK_XY_FEATURES + NUM_TRUNK_ANGLE_FEATURES
+    + NUM_IMU_RAW_FEATURES + NUM_BAR_FEATURES + NUM_ASYMMETRY_FEATURES
+    + NUM_ENGINEERED_FEATURES + NUM_SUBJECT_FEATURES
+)  # = 40
+
+SEQUENCE_LENGTH_RAW = 3       # Real captured phases (Descent, Bottom, Lockout)
+SEQUENCE_LENGTH_MODEL = 4     # + 1 computed delta timestep (phase3 - phase1)
+
+FEATURE_ORDER = [
+    "Subject_Height_cm", "Subject_Weight_kg", "Exercise_ID", "Rep_Phase", "Load_kg",
+    "Vis_L_Shoulder_X", "Vis_L_Shoulder_Y", "Vis_R_Shoulder_X", "Vis_R_Shoulder_Y",
+    "Vis_L_Hip_X", "Vis_L_Hip_Y", "Vis_R_Hip_X", "Vis_R_Hip_Y",
+    "Vis_L_Knee_X", "Vis_L_Knee_Y", "Vis_R_Knee_X", "Vis_R_Knee_Y",
+    "Vis_L_Ankle_X", "Vis_L_Ankle_Y", "Vis_R_Ankle_X", "Vis_R_Ankle_Y",
+    "Angle_Trunk_Inclination",
+    "IMU_Acc_X", "IMU_Acc_Y", "IMU_Acc_Z", "IMU_Gyro_X", "IMU_Gyro_Y", "IMU_Gyro_Z",
+    "V_Bar_Velocity_Vertical", "P_Bar_Power_Watts", "Smoothness_Jerk",
+    "Hip_Flexion_Asymmetry", "Knee_Flexion_Asymmetry", "Ankle_Dorsiflexion_Asymmetry",
+    "IMU_Acc_Magnitude", "Knee_Hip_Coupling_L", "Knee_Hip_Coupling_R", "Velocity_Decel_Ratio",
+    "Femur_Tibia_Ratio", "BMI",
+]
 
 # ──────────────────────────────────────────────────────────────────────
 # Skeleton connections for drawing overlay

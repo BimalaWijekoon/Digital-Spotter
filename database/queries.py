@@ -20,13 +20,16 @@ from database.models import Session, Rep
 logger = logging.getLogger(__name__)
 
 
-def create_session(exercise_id, exercise_name, notes=None):
+def create_session(exercise_id, exercise_name, notes=None, height_cm=None, weight_kg=None, ftr=None):
     """Create a new training session.
 
     Args:
         exercise_id: Numeric exercise identifier (0=Squat, 1=Deadlift).
         exercise_name: Human-readable exercise name string.
         notes: Optional user notes for the session.
+        height_cm: Subject height in cm (v4 pipeline).
+        weight_kg: Subject weight in kg (v4 pipeline).
+        ftr: Femur-to-tibia ratio (v4 pipeline).
 
     Returns:
         int: The newly created session ID.
@@ -36,9 +39,9 @@ def create_session(exercise_id, exercise_name, notes=None):
     """
     conn = get_connection()
     cursor = conn.execute(
-        """INSERT INTO sessions (exercise_id, exercise_name, notes)
-           VALUES (?, ?, ?)""",
-        (exercise_id, exercise_name, notes)
+        """INSERT INTO sessions (exercise_id, exercise_name, notes, height_cm, weight_kg, ftr)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (exercise_id, exercise_name, notes, height_cm, weight_kg, ftr)
     )
     conn.commit()
     session_id = cursor.lastrowid

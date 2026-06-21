@@ -18,7 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.config import Config
-from inference.scaler_wrapper import ScalerWrapper
+from inference.preprocessor import Preprocessor
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class LSTMRunner:
         self._interpreter = None
         self._input_details = None
         self._output_details = None
-        self._scaler = ScalerWrapper()
+        self._preprocessor = Preprocessor()
         self._is_loaded = False
         self._is_mock = False
 
@@ -106,8 +106,8 @@ class LSTMRunner:
             Config.PATHS.SCALER_PKL
         )
 
-        # Load scaler
-        self._scaler.load(scaler_path)
+        # Load preprocessor artifacts
+        self._preprocessor.load(scaler_path=scaler_path)
 
         # Load model
         if not model_path.exists():
@@ -150,11 +150,12 @@ class LSTMRunner:
             return False
 
     def predict(self, sequence):
-        """Run inference on a (3, 38) sequence.
+        """Run inference on a (4, 40) sequence (already includes the delta
+        timestep — pass SequenceBuffer.get_model_sequence(), not get_sequence()).
 
         Args:
-            sequence: numpy.ndarray of shape (3, 38) —
-                3 phase feature vectors.
+            sequence: numpy.ndarray of shape (4, 40) —
+                4 phase feature vectors.
 
         Returns:
             InferenceResult: Prediction with label, confidence,
@@ -224,21 +225,17 @@ class LSTMRunner:
         return self._is_mock
 
     def _preprocess(self, sequence):
-        """Scale and reshape sequence for model input.
+        """Run winsor->impute->scale, then add batch dimension.
 
         Args:
-            sequence: numpy.ndarray of shape (3, 38).
+            sequence: numpy.ndarray of shape (4, 40) — see predict() docstring.
 
         Returns:
-            numpy.ndarray: Shape (1, 3, 38) float32 tensor.
+            numpy.ndarray: Shape (1, 4, 40) float32 tensor.
         """
         sequence = np.array(sequence, dtype=np.float32)
-
-        # Apply scaler to each phase vector
-        scaled = self._scaler.transform(sequence)
-
-        # Reshape to (1, 3, 38) — batch dimension
-        return scaled.reshape(1, *scaled.shape).astype(np.float32)
+        processed = self._preprocessor.apply_preprocessing(sequence)
+        return processed.reshape(1, *processed.shape).astype(np.float32)
 
     def _mock_predict(self, start_time):
         """Generate mock prediction for development.

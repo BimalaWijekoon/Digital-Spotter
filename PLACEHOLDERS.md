@@ -7,7 +7,7 @@ Tracking all placeholder implementations that need to be replaced with productio
 | Phase | File | Placeholder | Description |
 |-------|------|------------|-------------|
 | PHASE_3 | `vision/pose_engine.py` | BlazePose weights | Add BlazePose Heavy float16 weights path when model file is deployed |
-| PHASE_4 | `inference/scaler_wrapper.py` | scaler.pkl | Replace placeholder scaler with actual scaler.pkl from training notebook |
+| PHASE_4 | `inference/preprocessor.py` | preprocessor.save artifacts | Replace placeholder artifacts with actual scaler.save, winsor_bounds.save, feature_medians.save from training notebook |
 | PHASE_4 | `inference/lstm_runner.py` | model_quantized.tflite | Replace placeholder model with actual TFLite model from training |
 | PHASE_6 | `inference/feature_engineer.py` | IMU features | 6 IMU features are zeros until ESP32-S3 connected |
 | PHASE_6 | `inference/feature_engineer.py` | Bar performance | 3 bar features are zeros until IMU connected |

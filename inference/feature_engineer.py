@@ -15,14 +15,7 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.constants import (
-    NUM_LANDMARK_XY_FEATURES,
-    NUM_ANGLE_FEATURES,
-    NUM_IMU_RAW_FEATURES,
-    NUM_BAR_FEATURES,
-    NUM_CONTEXT_FEATURES,
-    TOTAL_FEATURES,
-)
+from config.constants import TOTAL_FEATURES, FEATURE_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -46,54 +39,33 @@ class FeatureEngineer:
         "LEFT_ANKLE", "RIGHT_ANKLE",
     ]
 
-    def engineer(self, landmarks, angles, imu_data=None, context=None):
-        """Build the complete 38-feature vector.
+    def engineer(self, landmarks, angles, imu_data=None, context=None, subject=None):
+        """Build the complete 40-feature vector matching FEATURE_ORDER.
 
         Args:
-            landmarks: Dict mapping landmark name to
-                (x, y, z, visibility).
-            angles: Dict mapping joint name to angle in degrees.
-            imu_data: Optional dict with keys 'acc_x', 'acc_y', 'acc_z',
-                'gyro_x', 'gyro_y', 'gyro_z'. None = zeros.
-            context: Optional dict with keys 'rep_phase', 'exercise_id',
-                'load_kg', 'height_cm', 'weight_kg', 'ftr'.
-                None = defaults.
+            landmarks: Dict {name: (x, y, z, visibility)}.
+            angles: Dict {joint_name: angle_degrees} — needs LEFT/RIGHT_HIP,
+                LEFT/RIGHT_KNEE, LEFT/RIGHT_ANKLE, TRUNK.
+            imu_data: Optional dict from ESP32Bridge.read_sample() (acc_x..gyro_z,
+                v_bar_velocity, p_bar_power, smoothness_jerk). None = zeros.
+            context: Optional dict — rep_phase, exercise_id, load_kg.
+            subject: Optional dict — height_cm, weight_kg, ftr (manual per-session
+                input collected at /api/session/start). None = config defaults.
 
         Returns:
-            numpy.ndarray: Shape (38,) feature vector, float32.
+            numpy.ndarray: Shape (40,) float32, ordered per FEATURE_ORDER.
         """
         features = np.zeros(TOTAL_FEATURES, dtype=np.float32)
         idx = 0
-
-        # Group 1: Vision XY landmarks (16 features)
-        xy_features = self._extract_landmark_xy(landmarks)
-        features[idx:idx + NUM_LANDMARK_XY_FEATURES] = xy_features
-        idx += NUM_LANDMARK_XY_FEATURES
-
-        # Group 2: Computed angles (7 features)
-        angle_features = self._compute_angle_features(angles)
-        features[idx:idx + NUM_ANGLE_FEATURES] = angle_features
-        idx += NUM_ANGLE_FEATURES
-
-        # Group 3: IMU raw (6 features)
-        imu_features = self._extract_imu_features(imu_data)
-        features[idx:idx + NUM_IMU_RAW_FEATURES] = imu_features
-        idx += NUM_IMU_RAW_FEATURES
-
-        # Group 4: Bar performance (3 features)
-        bar_features = self._extract_bar_features(imu_data)
-        features[idx:idx + NUM_BAR_FEATURES] = bar_features
-        idx += NUM_BAR_FEATURES
-
-        # Group 5: Context (6 features)
-        ctx_features = self._extract_context_features(context)
-        features[idx:idx + NUM_CONTEXT_FEATURES] = ctx_features
-        idx += NUM_CONTEXT_FEATURES
-
-        assert idx == TOTAL_FEATURES, (
-            f"Feature count mismatch: expected {TOTAL_FEATURES}, got {idx}"
-        )
-
+        features[idx:idx+5] = self._extract_context(context, subject); idx += 5
+        features[idx:idx+16] = self._extract_landmark_xy(landmarks);    idx += 16
+        features[idx:idx+1]  = self._extract_trunk_angle(angles);       idx += 1
+        features[idx:idx+6]  = self._extract_imu_features(imu_data);    idx += 6
+        features[idx:idx+3]  = self._extract_bar_features(imu_data);    idx += 3
+        features[idx:idx+3]  = self._compute_asymmetry_features(angles); idx += 3
+        features[idx:idx+4]  = self._compute_engineered_features(angles, imu_data); idx += 4
+        features[idx:idx+2]  = self._extract_subject_features(subject); idx += 2
+        assert idx == TOTAL_FEATURES, f"Feature count mismatch: expected {TOTAL_FEATURES}, got {idx}"
         return features
 
     def _extract_landmark_xy(self, landmarks):
@@ -113,27 +85,16 @@ class FeatureEngineer:
                 xy[i * 2 + 1] = y
         return xy
 
-    def _compute_angle_features(self, angles):
-        """Compute the 7 angle features.
-
-        For bilateral joints: uses the mean of L and R.
-        Includes L-R asymmetry encoded in the raw angles.
+    def _extract_trunk_angle(self, angles):
+        """Extract the single trunk inclination feature.
 
         Args:
             angles: Dict of {joint_name: angle_degrees}.
 
         Returns:
-            numpy.ndarray: Shape (7,) angle features.
+            numpy.ndarray: Shape (1,).
         """
-        return np.array([
-            angles.get("LEFT_HIP", 0.0),
-            angles.get("RIGHT_HIP", 0.0),
-            angles.get("LEFT_KNEE", 0.0),
-            angles.get("RIGHT_KNEE", 0.0),
-            angles.get("LEFT_ANKLE", 0.0),
-            angles.get("RIGHT_ANKLE", 0.0),
-            angles.get("TRUNK", 0.0),
-        ], dtype=np.float32)
+        return np.array([angles.get("TRUNK", 0.0)], dtype=np.float32)
 
     def _compute_asymmetry_features(self, angles):
         """Compute left-right asymmetry features.
@@ -157,27 +118,43 @@ class FeatureEngineer:
             [hip_asym, knee_asym, ankle_asym], dtype=np.float32
         )
 
-    def _compute_bilateral_mean(self, angles):
-        """Compute bilateral mean for hip, knee, ankle.
+    def _compute_engineered_features(self, angles, imu_data):
+        """Compute the 4 v4-only engineered features.
+
+        IMU_Acc_Magnitude: sqrt(ax^2+ay^2+az^2), rotation-invariant movement
+            intensity. Gravity baseline ~9.81 when still.
+        Knee_Hip_Coupling_L/R: knee_flexion_angle / (hip_flexion_angle + eps).
+            Needs the RAW per-side angles, not the asymmetry — read directly
+            from `angles` here even though raw angles aren't in the output vector.
+        Velocity_Decel_Ratio: placeholder 1.0 (neutral) here — the true value
+            needs phase1 AND phase3 bar velocity and is computed once per
+            completed rep in SessionManager, then backfilled into the delta
+            row before inference. See sequence_buffer.py changes.
 
         Args:
-            angles: Dict of {joint_name: angle_degrees}.
+            angles: Dict of joint angles (raw, includes L/R pairs).
+            imu_data: Optional IMU dict, None = zeros/neutral defaults.
 
         Returns:
-            numpy.ndarray: Shape (3,) — mean hip, knee, ankle.
+            numpy.ndarray: Shape (4,) — [IMU_Acc_Magnitude, Knee_Hip_Coupling_L,
+                Knee_Hip_Coupling_R, Velocity_Decel_Ratio].
         """
-        hip_mean = (
-            angles.get("LEFT_HIP", 0) + angles.get("RIGHT_HIP", 0)
-        ) / 2.0
-        knee_mean = (
-            angles.get("LEFT_KNEE", 0) + angles.get("RIGHT_KNEE", 0)
-        ) / 2.0
-        ankle_mean = (
-            angles.get("LEFT_ANKLE", 0) + angles.get("RIGHT_ANKLE", 0)
-        ) / 2.0
-        return np.array(
-            [hip_mean, knee_mean, ankle_mean], dtype=np.float32
-        )
+        eps = 1e-6
+        if imu_data is None:
+            imu_mag = 0.0
+        else:
+            ax = imu_data.get("acc_x", 0.0)
+            ay = imu_data.get("acc_y", 0.0)
+            az = imu_data.get("acc_z", 0.0)
+            imu_mag = float(np.sqrt(ax**2 + ay**2 + az**2))
+
+        knee_hip_l = angles.get("LEFT_KNEE", 0.0) / (angles.get("LEFT_HIP", 0.0) + eps)
+        knee_hip_r = angles.get("RIGHT_KNEE", 0.0) / (angles.get("RIGHT_HIP", 0.0) + eps)
+
+        decel_ratio = 1.0  # neutral placeholder; SessionManager overwrites this
+                           # on the delta row once phase1/phase3 velocity are both known
+
+        return np.array([imu_mag, knee_hip_l, knee_hip_r, decel_ratio], dtype=np.float32)
 
     def _extract_imu_features(self, imu_data):
         """Extract 6 raw IMU features.
@@ -223,25 +200,45 @@ class FeatureEngineer:
             imu_data.get("smoothness_jerk", 0.0),
         ], dtype=np.float32)
 
-    def _extract_context_features(self, context):
-        """Extract 6 context features.
+    def _extract_context(self, context, subject):
+        """Extract the 5 context features: height, weight, exercise_id, phase, load.
 
         Args:
-            context: Optional dict with session context.
-                None returns defaults.
+            context: Optional dict with rep_phase, exercise_id, load_kg.
+            subject: Optional dict with height_cm, weight_kg (manual per-session input).
 
         Returns:
-            numpy.ndarray: Shape (6,) — [phase, exercise_id, load_kg,
-                height_cm, weight_kg, ftr].
+            numpy.ndarray: Shape (5,) — [height_cm, weight_kg, exercise_id, rep_phase, load_kg].
         """
-        if context is None:
-            context = {}
-
+        context = context or {}
+        subject = subject or {}
         return np.array([
-            context.get("rep_phase", 0),
+            subject.get("height_cm", 175.0),
+            subject.get("weight_kg", 75.0),
             context.get("exercise_id", 0),
+            context.get("rep_phase", 0),
             context.get("load_kg", 0.0),
-            context.get("height_cm", 175.0),
-            context.get("weight_kg", 75.0),
-            context.get("ftr", 0.0),
         ], dtype=np.float32)
+
+    def _extract_subject_features(self, subject):
+        """Extract the 2 trailing subject-context features: FTR, BMI.
+
+        Args:
+            subject: Optional dict with height_cm, weight_kg, ftr — same dict
+                passed to start_session(), manual per-session input.
+
+        Returns:
+            numpy.ndarray: Shape (2,) — [Femur_Tibia_Ratio, BMI].
+                BMI is computed from height_cm/weight_kg if not given directly.
+        """
+        subject = subject or {}
+        height_cm = subject.get("height_cm", 175.0)
+        weight_kg = subject.get("weight_kg", 75.0)
+        ftr = subject.get("ftr", 1.20)  # ~population average from subject_meta.csv
+
+        bmi = subject.get("bmi")
+        if bmi is None:
+            height_m = height_cm / 100.0
+            bmi = weight_kg / (height_m ** 2) if height_m > 0 else 0.0
+
+        return np.array([ftr, bmi], dtype=np.float32)

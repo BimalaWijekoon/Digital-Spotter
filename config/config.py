@@ -56,7 +56,10 @@ class _Paths:
     FRONTEND_DIR = ROOT / "frontend"
     MODEL_TFLITE = MODELS_DIR / "model_quantized.tflite"
     MODEL_FULLPREC = MODELS_DIR / "model_fullprec.tflite"
-    SCALER_PKL = MODELS_DIR / "scaler.pkl"
+    SCALER_PKL = MODELS_DIR / "scaler.save"
+    WINSOR_BOUNDS = MODELS_DIR / "winsor_bounds.save"
+    FEATURE_MEDIANS = MODELS_DIR / "feature_medians.save"
+    DEPLOYMENT_CONFIG = MODELS_DIR / "deployment_config.save"
     DATABASE = DATA_DIR / "sessions.db"
     SCHEMA_SQL = ROOT / "database" / "schema.sql"
 
@@ -71,9 +74,11 @@ class _MediaPipe:
 
 class _Inference:
     """LSTM inference pipeline configuration."""
-    SEQUENCE_LENGTH = 3  # 3 phases per rep
-    NUM_FEATURES = 38  # Feature vector dimensionality
-    DECISION_THRESHOLD = 0.5  # Sigmoid cutoff
+    from config.constants import TOTAL_FEATURES, SEQUENCE_LENGTH_RAW, SEQUENCE_LENGTH_MODEL
+    SEQUENCE_LENGTH = SEQUENCE_LENGTH_RAW       # 3 — phases pushed into buffer
+    SEQUENCE_LENGTH_MODEL = SEQUENCE_LENGTH_MODEL  # 4 — what actually goes into the model
+    NUM_FEATURES = TOTAL_FEATURES               # 40
+    DECISION_THRESHOLD = 0.359                  # from deployment_config.save['threshold'], NOT 0.5
     BAD_FORM_LABEL = "Bad Form"
     GOOD_FORM_LABEL = "Good Form"
 

@@ -129,12 +129,18 @@ class UIController {
         if (status.clients !== undefined) document.getElementById('sys-clients').textContent = status.clients;
     }
 
-    async startSession(exerciseId) {
+    async startSession(exerciseId, heightCm, weightKg, ftr, loadKg) {
         try {
             const resp = await fetch('/api/session/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ exercise_id: parseInt(exerciseId) }),
+                body: JSON.stringify({ 
+                    exercise_id: parseInt(exerciseId),
+                    height_cm: parseFloat(heightCm),
+                    weight_kg: parseFloat(weightKg),
+                    ftr: parseFloat(ftr),
+                    load_kg: parseFloat(loadKg)
+                }),
             });
             const data = await resp.json();
             this._sessionId = data.session_id;
@@ -205,7 +211,11 @@ class UIController {
     _bindControls() {
         document.getElementById('btn-start-session').addEventListener('click', () => {
             const exId = document.getElementById('exercise-select').value;
-            this.startSession(exId);
+            const height = document.getElementById('subject-height').value || 175.0;
+            const weight = document.getElementById('subject-weight').value || 75.0;
+            const ftr = document.getElementById('subject-ftr').value || 1.20;
+            const load = document.getElementById('session-load').value || 0.0;
+            this.startSession(exId, height, weight, ftr, load);
         });
         document.getElementById('btn-stop-session').addEventListener('click', () => {
             this.stopSession();

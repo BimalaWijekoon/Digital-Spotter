@@ -1,0 +1,573 @@
+{
+  "plan_name": "Digital Spotter — Pi inference pipeline upgrade for v4 BiLSTM+MHA model",
+  "generated_from": "gym_fusion_model_training_v4.ipynb (executed run: 91.36% test accuracy, F1=0.9257 @ optimal threshold)",
+  "summary": {
+    "old_model_contract": {
+      "features": 38,
+      "sequence_length": 3,
+      "scaler_only": true
+    },
+    "new_model_contract": {
+      "features": 40,
+      "sequence_length": 4,
+      "delta_timestep": "phase3_features - phase1_features, appended as 4th row in software, computed AFTER all 3 raw phases are buffered",
+      "decision_threshold": 0.359,
+      "preprocessing_order": ["winsorize IMU columns (clip to saved bounds)", "impute NaN with saved per-feature medians", "StandardScaler.transform"],
+      "feature_order_exact": [
+        "Subject_Height_cm", "Subject_Weight_kg", "Exercise_ID", "Rep_Phase", "Load_kg",
+        "Vis_L_Shoulder_X", "Vis_L_Shoulder_Y", "Vis_R_Shoulder_X", "Vis_R_Shoulder_Y",
+        "Vis_L_Hip_X", "Vis_L_Hip_Y", "Vis_R_Hip_X", "Vis_R_Hip_Y",
+        "Vis_L_Knee_X", "Vis_L_Knee_Y", "Vis_R_Knee_X", "Vis_R_Knee_Y",
+        "Vis_L_Ankle_X", "Vis_L_Ankle_Y", "Vis_R_Ankle_X", "Vis_R_Ankle_Y",
+        "Angle_Trunk_Inclination",
+        "IMU_Acc_X", "IMU_Acc_Y", "IMU_Acc_Z", "IMU_Gyro_X", "IMU_Gyro_Y", "IMU_Gyro_Z",
+        "V_Bar_Velocity_Vertical", "P_Bar_Power_Watts", "Smoothness_Jerk",
+        "Hip_Flexion_Asymmetry", "Knee_Flexion_Asymmetry", "Ankle_Dorsiflexion_Asymmetry",
+        "IMU_Acc_Magnitude", "Knee_Hip_Coupling_L", "Knee_Hip_Coupling_R", "Velocity_Decel_Ratio",
+        "Femur_Tibia_Ratio", "BMI"
+      ],
+      "key_differences_from_old_38": [
+        "Raw L/R angles (hip/knee/ankle, 6 values) are REMOVED from the feature vector entirely — model never sees them directly, only their |L-R| asymmetry.",
+        "Context block now comes FIRST (height, weight, exercise_id, phase, load), not last.",
+        "Trunk angle is the ONLY raw angle kept (1 value instead of old 7).",
+        "4 brand-new engineered features with no equivalent in the old pipeline: IMU_Acc_Magnitude, Knee_Hip_Coupling_L, Knee_Hip_Coupling_R, Velocity_Decel_Ratio.",
+        "2 new subject-context features: Femur_Tibia_Ratio, BMI — both currently entered manually per session per your decision.",
+        "Sequence length is 4, not 3 — a delta row computed from phase1/phase3 must be appended before inference."
+      ]
+    },
+    "user_decisions_applied": {
+      "femur_tibia_ratio_and_bmi": "Manual per-session input (like height/weight already are) — collected via /api/session/start, stored on the session row.",
+      "imu_hardware": "Still mock-only. ESP32Bridge is wired into the live pipeline now (it currently exists but is never instantiated/called anywhere) so realistic mock IMU values flow through the model instead of hardcoded zeros. Swapping to real hardware later is a one-line change in esp32_bridge.py (TODO PHASE_8 already marked).",
+      "bar_velocity_and_decel_ratio": "Mock IMU bridge already returns v_bar_velocity (see imu/esp32_bridge.py _mock_sample). Velocity_Decel_Ratio is computed from the mock phase1/phase3 bar velocity until real IMU lands — it will not silently be zero/wrong, it will just be mock-quality like the rest of the IMU chain."
+    }
+  },
+  "files": [
+    {
+      "path": "config/constants.py",
+      "change_type": "modify",
+      "why": "Old constants hardcode the 38-feature / 5-group layout in a different order than the v4 model expects. These are read by feature_engineer.py, sequence_buffer.py (indirectly via config), and tests.",
+      "changes": [
+        {
+          "location": "Feature engineering constants block (NUM_LANDMARK_XY_FEATURES through TOTAL_FEATURES, lines ~93-104)",
+          "action": "replace",
+          "old_value": "NUM_LANDMARK_XY_FEATURES = 16\nNUM_ANGLE_FEATURES = 7\nNUM_IMU_RAW_FEATURES = 6\nNUM_BAR_FEATURES = 3\nNUM_CONTEXT_FEATURES = 6\nTOTAL_FEATURES = 38 (sum of above)",
+          "new_value": "NUM_CONTEXT_FEATURES = 5          # Height, Weight, ExerciseID, RepPhase, Load\nNUM_LANDMARK_XY_FEATURES = 16     # 8 landmarks x (X, Y) — unchanged\nNUM_TRUNK_ANGLE_FEATURES = 1      # Trunk inclination only — raw L/R angles dropped\nNUM_IMU_RAW_FEATURES = 6          # Acc XYZ + Gyro XYZ — unchanged\nNUM_BAR_FEATURES = 3              # Velocity, Power, Jerk — unchanged\nNUM_ASYMMETRY_FEATURES = 3        # Hip, Knee, Ankle |L-R| — replaces raw L/R angle pairs\nNUM_ENGINEERED_FEATURES = 4       # IMU_Acc_Magnitude, Knee_Hip_Coupling_L, Knee_Hip_Coupling_R, Velocity_Decel_Ratio\nNUM_SUBJECT_FEATURES = 2          # Femur_Tibia_Ratio, BMI\nTOTAL_FEATURES = (\n    NUM_CONTEXT_FEATURES + NUM_LANDMARK_XY_FEATURES + NUM_TRUNK_ANGLE_FEATURES\n    + NUM_IMU_RAW_FEATURES + NUM_BAR_FEATURES + NUM_ASYMMETRY_FEATURES\n    + NUM_ENGINEERED_FEATURES + NUM_SUBJECT_FEATURES\n)  # = 40",
+          "reason": "Must mirror the v4 notebook's FEATURE_COLS group sizes and order exactly, or the scaler (which was fit on a specific column order) will silently apply the wrong per-column mean/std to each value."
+        },
+        {
+          "location": "New constant block, add after TOTAL_FEATURES",
+          "action": "add",
+          "new_value": "SEQUENCE_LENGTH_RAW = 3       # Real captured phases (Descent, Bottom, Lockout)\nSEQUENCE_LENGTH_MODEL = 4     # + 1 computed delta timestep (phase3 - phase1)\n\nFEATURE_ORDER = [\n    \"Subject_Height_cm\", \"Subject_Weight_kg\", \"Exercise_ID\", \"Rep_Phase\", \"Load_kg\",\n    \"Vis_L_Shoulder_X\", \"Vis_L_Shoulder_Y\", \"Vis_R_Shoulder_X\", \"Vis_R_Shoulder_Y\",\n    \"Vis_L_Hip_X\", \"Vis_L_Hip_Y\", \"Vis_R_Hip_X\", \"Vis_R_Hip_Y\",\n    \"Vis_L_Knee_X\", \"Vis_L_Knee_Y\", \"Vis_R_Knee_X\", \"Vis_R_Knee_Y\",\n    \"Vis_L_Ankle_X\", \"Vis_L_Ankle_Y\", \"Vis_R_Ankle_X\", \"Vis_R_Ankle_Y\",\n    \"Angle_Trunk_Inclination\",\n    \"IMU_Acc_X\", \"IMU_Acc_Y\", \"IMU_Acc_Z\", \"IMU_Gyro_X\", \"IMU_Gyro_Y\", \"IMU_Gyro_Z\",\n    \"V_Bar_Velocity_Vertical\", \"P_Bar_Power_Watts\", \"Smoothness_Jerk\",\n    \"Hip_Flexion_Asymmetry\", \"Knee_Flexion_Asymmetry\", \"Ankle_Dorsiflexion_Asymmetry\",\n    \"IMU_Acc_Magnitude\", \"Knee_Hip_Coupling_L\", \"Knee_Hip_Coupling_R\", \"Velocity_Decel_Ratio\",\n    \"Femur_Tibia_Ratio\", \"BMI\",\n]",
+          "reason": "Single source of truth for column order, used by FeatureEngineer to build the vector and by the preprocessor to map winsor_bounds/feature_medians dicts (which are keyed by these exact string names in the notebook's deployment_config.save) onto array indices."
+        },
+        {
+          "location": "ERROR_CATEGORIES dict (lines 40-47)",
+          "action": "keep_unchanged",
+          "reason": "Matches ERROR_NAMES in the v4 notebook exactly (0=Good_Form ... 5=Hip_Shift). No change needed."
+        }
+      ]
+    },
+    {
+      "path": "config/config.py",
+      "change_type": "modify",
+      "why": "_Inference and _Paths classes hardcode the old shape and old artifact filenames.",
+      "changes": [
+        {
+          "location": "_Inference class (lines 72-78)",
+          "action": "replace",
+          "old_value": "class _Inference:\n    SEQUENCE_LENGTH = 3\n    NUM_FEATURES = 38\n    DECISION_THRESHOLD = 0.5\n    BAD_FORM_LABEL = \"Bad Form\"\n    GOOD_FORM_LABEL = \"Good Form\"",
+          "new_value": "class _Inference:\n    from config.constants import TOTAL_FEATURES, SEQUENCE_LENGTH_RAW, SEQUENCE_LENGTH_MODEL\n    SEQUENCE_LENGTH = SEQUENCE_LENGTH_RAW       # 3 — phases pushed into buffer\n    SEQUENCE_LENGTH_MODEL = SEQUENCE_LENGTH_MODEL  # 4 — what actually goes into the model\n    NUM_FEATURES = TOTAL_FEATURES               # 40\n    DECISION_THRESHOLD = 0.359                  # from deployment_config.save['threshold'], NOT 0.5\n    BAD_FORM_LABEL = \"Bad Form\"\n    GOOD_FORM_LABEL = \"Good Form\"",
+          "reason": "DECISION_THRESHOLD=0.5 was always a placeholder; the notebook's PR-curve sweep found 0.359 as optimal (F1 0.9103->0.9257). Using 0.5 on the real model will silently under-flag bad reps relative to what the model was actually tuned for."
+        },
+        {
+          "location": "_Paths class (lines 47-61)",
+          "action": "replace",
+          "old_value": "SCALER_PKL = MODELS_DIR / \"scaler.pkl\"",
+          "new_value": "SCALER_PKL = MODELS_DIR / \"scaler.save\"\nWINSOR_BOUNDS = MODELS_DIR / \"winsor_bounds.save\"\nFEATURE_MEDIANS = MODELS_DIR / \"feature_medians.save\"\nDEPLOYMENT_CONFIG = MODELS_DIR / \"deployment_config.save\"",
+          "reason": "The v4 notebook's joblib.dump() calls use these exact filenames (Section 8 winsorization cell, Section 8 imputation cell, Section 13 deployment config cell). scaler.pkl was the old/assumed name; the actual saved file is scaler.save. Two new artifacts (winsor_bounds.save, feature_medians.save) did not exist for the old model and must be added."
+        }
+      ]
+    },
+    {
+      "path": "inference/feature_engineer.py",
+      "change_type": "rewrite",
+      "why": "Built for the old 5-group/38-feature layout in the wrong order with the wrong fields (raw L/R angles instead of asymmetry, no engineered features, no subject context). This is the single most consequential file to get right — a wrong column order silently produces a vector the scaler was never fit on, and the model will make confident-but-wrong predictions with no error thrown.",
+      "changes": [
+        {
+          "location": "engineer() method signature and body (lines 49-97)",
+          "action": "replace",
+          "old_value": "def engineer(self, landmarks, angles, imu_data=None, context=None):\n    # builds 38-feature vector: XY(16) -> angles(7) -> IMU(6) -> bar(3) -> context(6)",
+          "new_value": "def engineer(self, landmarks, angles, imu_data=None, context=None, subject=None):\n    \"\"\"Build the complete 40-feature vector matching FEATURE_ORDER.\n\n    Args:\n        landmarks: Dict {name: (x, y, z, visibility)}.\n        angles: Dict {joint_name: angle_degrees} — needs LEFT/RIGHT_HIP,\n            LEFT/RIGHT_KNEE, LEFT/RIGHT_ANKLE, TRUNK.\n        imu_data: Optional dict from ESP32Bridge.read_sample() (acc_x..gyro_z,\n            v_bar_velocity, p_bar_power, smoothness_jerk). None = zeros.\n        context: Optional dict — rep_phase, exercise_id, load_kg.\n        subject: Optional dict — height_cm, weight_kg, ftr (manual per-session\n            input collected at /api/session/start). None = config defaults.\n\n    Returns:\n        numpy.ndarray: Shape (40,) float32, ordered per FEATURE_ORDER.\n    \"\"\"\n    features = np.zeros(TOTAL_FEATURES, dtype=np.float32)\n    idx = 0\n    features[idx:idx+5] = self._extract_context(context, subject); idx += 5\n    features[idx:idx+16] = self._extract_landmark_xy(landmarks);    idx += 16\n    features[idx:idx+1]  = self._extract_trunk_angle(angles);       idx += 1\n    features[idx:idx+6]  = self._extract_imu_features(imu_data);    idx += 6\n    features[idx:idx+3]  = self._extract_bar_features(imu_data);    idx += 3\n    features[idx:idx+3]  = self._compute_asymmetry_features(angles); idx += 3\n    features[idx:idx+4]  = self._compute_engineered_features(angles, imu_data); idx += 4\n    features[idx:idx+2]  = self._extract_subject_features(subject); idx += 2\n    assert idx == TOTAL_FEATURES, f\"Feature count mismatch: expected {TOTAL_FEATURES}, got {idx}\"\n    return features",
+          "reason": "Matches FEATURE_ORDER group-for-group: context first (5, not 6 — load_kg moved here, height/weight moved here too, FTR/BMI moved to the very end as subject features per the notebook), vision XY (16, unchanged), trunk only (1, not 7), IMU (6, unchanged), bar (3, unchanged), asymmetry (3, NEW — was previously computed but never used), engineered (4, entirely new), subject (2, entirely new)."
+        },
+        {
+          "location": "_compute_angle_features() method (lines 116-136)",
+          "action": "delete",
+          "reason": "Returned the 7 raw angles (LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE, TRUNK) which the v4 model never sees. Replaced by _extract_trunk_angle() (keeps only TRUNK) and _compute_asymmetry_features() (already existed but was dead code, now actually called)."
+        },
+        {
+          "location": "New method: _extract_trunk_angle(self, angles)",
+          "action": "add",
+          "new_value": "def _extract_trunk_angle(self, angles):\n    \"\"\"Extract the single trunk inclination feature.\n\n    Args:\n        angles: Dict of {joint_name: angle_degrees}.\n\n    Returns:\n        numpy.ndarray: Shape (1,).\n    \"\"\"\n    return np.array([angles.get(\"TRUNK\", 0.0)], dtype=np.float32)",
+          "reason": "v4 model keeps Angle_Trunk_Inclination as the only raw angle; the bilateral joint angles are represented only via asymmetry."
+        },
+        {
+          "location": "_compute_asymmetry_features() method (lines 138-158)",
+          "action": "keep_and_wire_in",
+          "reason": "This method already existed and already computes exactly what's needed (hip/knee/ankle |L-R|) — it was just never called from engineer(). No logic change needed, just call it."
+        },
+        {
+          "location": "_compute_bilateral_mean() method (lines 160-180)",
+          "action": "delete",
+          "reason": "Dead code, computes bilateral mean angles which have no slot in the v4 40-feature vector (the model was never trained on this quantity)."
+        },
+        {
+          "location": "New method: _compute_engineered_features(self, angles, imu_data)",
+          "action": "add",
+          "new_value": "def _compute_engineered_features(self, angles, imu_data):\n    \"\"\"Compute the 4 v4-only engineered features.\n\n    IMU_Acc_Magnitude: sqrt(ax^2+ay^2+az^2), rotation-invariant movement\n        intensity. Gravity baseline ~9.81 when still.\n    Knee_Hip_Coupling_L/R: knee_flexion_angle / (hip_flexion_angle + eps).\n        Needs the RAW per-side angles, not the asymmetry — read directly\n        from `angles` here even though raw angles aren't in the output vector.\n    Velocity_Decel_Ratio: placeholder 1.0 (neutral) here — the true value\n        needs phase1 AND phase3 bar velocity and is computed once per\n        completed rep in SessionManager, then backfilled into the delta\n        row before inference. See sequence_buffer.py changes.\n\n    Args:\n        angles: Dict of joint angles (raw, includes L/R pairs).\n        imu_data: Optional IMU dict, None = zeros/neutral defaults.\n\n    Returns:\n        numpy.ndarray: Shape (4,) — [IMU_Acc_Magnitude, Knee_Hip_Coupling_L,\n            Knee_Hip_Coupling_R, Velocity_Decel_Ratio].\n    \"\"\"\n    eps = 1e-6\n    if imu_data is None:\n        imu_mag = 0.0\n    else:\n        ax = imu_data.get(\"acc_x\", 0.0)\n        ay = imu_data.get(\"acc_y\", 0.0)\n        az = imu_data.get(\"acc_z\", 0.0)\n        imu_mag = float(np.sqrt(ax**2 + ay**2 + az**2))\n\n    knee_hip_l = angles.get(\"LEFT_KNEE\", 0.0) / (angles.get(\"LEFT_HIP\", 0.0) + eps)\n    knee_hip_r = angles.get(\"RIGHT_KNEE\", 0.0) / (angles.get(\"RIGHT_HIP\", 0.0) + eps)\n\n    decel_ratio = 1.0  # neutral placeholder; SessionManager overwrites this\n                       # on the delta row once phase1/phase3 velocity are both known\n\n    return np.array([imu_mag, knee_hip_l, knee_hip_r, decel_ratio], dtype=np.float32)",
+          "reason": "These 4 features did not exist in the old pipeline at all. IMU_Acc_Magnitude and Knee_Hip_Coupling are computable per-frame from data already available (IMU + angles), so they're computed inline here. Velocity_Decel_Ratio is fundamentally cross-phase (needs phase1 AND phase3 readings) so it cannot be correctly computed at single-frame time — a neutral placeholder (1.0, meaning 'no deceleration') is used here and the real value is patched in by SessionManager once the full rep completes (see integration/session_manager.py changes)."
+        },
+        {
+          "location": "New method: _extract_context(self, context, subject)",
+          "action": "add",
+          "new_value": "def _extract_context(self, context, subject):\n    \"\"\"Extract the 5 context features: height, weight, exercise_id, phase, load.\n\n    Args:\n        context: Optional dict with rep_phase, exercise_id, load_kg.\n        subject: Optional dict with height_cm, weight_kg (manual per-session input).\n\n    Returns:\n        numpy.ndarray: Shape (5,) — [height_cm, weight_kg, exercise_id, rep_phase, load_kg].\n    \"\"\"\n    context = context or {}\n    subject = subject or {}\n    return np.array([\n        subject.get(\"height_cm\", 175.0),\n        subject.get(\"weight_kg\", 75.0),\n        context.get(\"exercise_id\", 0),\n        context.get(\"rep_phase\", 0),\n        context.get(\"load_kg\", 0.0),\n    ], dtype=np.float32)",
+          "reason": "Notebook's FEATURE_ORDER puts Subject_Height_cm, Subject_Weight_kg, Exercise_ID, Rep_Phase, Load_kg first as a group of 5 — different grouping AND different count (5, not the old 6) than the old _extract_context_features, which bundled FTR in here too (FTR now lives in the new _extract_subject_features at the end, matching the notebook's actual final 2 columns)."
+        },
+        {
+          "location": "New method: _extract_subject_features(self, subject)",
+          "action": "add",
+          "new_value": "def _extract_subject_features(self, subject):\n    \"\"\"Extract the 2 trailing subject-context features: FTR, BMI.\n\n    Args:\n        subject: Optional dict with height_cm, weight_kg, ftr — same dict\n            passed to start_session(), manual per-session input.\n\n    Returns:\n        numpy.ndarray: Shape (2,) — [Femur_Tibia_Ratio, BMI].\n            BMI is computed from height_cm/weight_kg if not given directly.\n    \"\"\"\n    subject = subject or {}\n    height_cm = subject.get(\"height_cm\", 175.0)\n    weight_kg = subject.get(\"weight_kg\", 75.0)\n    ftr = subject.get(\"ftr\", 1.20)  # ~population average from subject_meta.csv\n\n    bmi = subject.get(\"bmi\")\n    if bmi is None:\n        height_m = height_cm / 100.0\n        bmi = weight_kg / (height_m ** 2) if height_m > 0 else 0.0\n\n    return np.array([ftr, bmi], dtype=np.float32)",
+          "reason": "Femur_Tibia_Ratio and BMI are the last 2 columns in FEATURE_ORDER, sourced from subject_meta.csv in training. On the Pi there's no subject_meta.csv — per your decision, FTR is entered manually once per session; BMI is auto-computed from height/weight if not explicitly supplied, since you already collect height_cm and weight_kg."
+        },
+        {
+          "location": "_extract_imu_features(), _extract_bar_features() (lines 182-224)",
+          "action": "keep_unchanged",
+          "reason": "Logic and field names are already correct (acc_x..gyro_z, v_bar_velocity, p_bar_power, smoothness_jerk) and match what ESP32Bridge.read_sample()/_mock_sample() already returns. No change needed beyond being called in the new group order."
+        },
+        {
+          "location": "_extract_context_features() method (lines 226-247)",
+          "action": "delete",
+          "reason": "Replaced by the split _extract_context() (5 fields, different grouping position) + _extract_subject_features() (2 fields, at the end). The old method's single 6-field bundle doesn't match the v4 layout."
+        },
+        {
+          "location": "Imports at top of file",
+          "action": "replace",
+          "old_value": "from config.constants import (\n    NUM_LANDMARK_XY_FEATURES, NUM_ANGLE_FEATURES, NUM_IMU_RAW_FEATURES,\n    NUM_BAR_FEATURES, NUM_CONTEXT_FEATURES, TOTAL_FEATURES,\n)",
+          "new_value": "from config.constants import TOTAL_FEATURES, FEATURE_ORDER",
+          "reason": "Old per-group imports no longer needed since engineer() now hardcodes group sizes inline (5/16/1/6/3/3/4/2) matching FEATURE_ORDER; only TOTAL_FEATURES (for the zeros() allocation and assert) and FEATURE_ORDER (for documentation/validation) are needed."
+        }
+      ]
+    },
+    {
+      "path": "inference/sequence_buffer.py",
+      "change_type": "modify",
+      "why": "Currently sized for (3, 38) and has no concept of the delta timestep. Needs to grow to produce a (4, 40) sequence, with the 4th row computed in software, AND needs a hook to patch in the real Velocity_Decel_Ratio once it's known (it can't be known until phase 3 completes).",
+      "changes": [
+        {
+          "location": "__init__ (lines 30-49)",
+          "action": "modify",
+          "old_value": "self._buffer = np.zeros((self._seq_len, self._num_features), dtype=np.float32)\n# seq_len = 3 from Config.INFERENCE.SEQUENCE_LENGTH",
+          "new_value": "self._seq_len = sequence_length or Config.INFERENCE.SEQUENCE_LENGTH  # 3 — raw phases only\nself._num_features = Config.INFERENCE.NUM_FEATURES  # 40\nself._buffer = np.zeros((self._seq_len, self._num_features), dtype=np.float32)\n# unchanged shape/logic for the RAW 3-phase buffer — delta row is added separately, see get_model_sequence()",
+          "reason": "The raw push-buffer should stay at 3 (it only ever receives real captured phase data); the 4th row is synthetic and doesn't belong in the same fixed-size array that push()/is_ready() reason about by phase_id 1-3."
+        },
+        {
+          "location": "New method: get_model_sequence(self, decel_ratio_idx=None, decel_ratio_value=None)",
+          "action": "add",
+          "new_value": "def get_model_sequence(self, decel_ratio_idx=None, decel_ratio_value=None):\n    \"\"\"Build the (4, num_features) sequence the model actually expects.\n\n    Appends a 4th row = phase3_features - phase1_features (the delta\n    timestep), matching the v4 notebook's augmentation exactly:\n        X_delta = X[:, 2, :] - X[:, 0, :]\n        X_aug = concatenate([X, X_delta], axis=1)\n\n    Args:\n        decel_ratio_idx: Index of Velocity_Decel_Ratio within the feature\n            vector (FEATURE_ORDER.index('Velocity_Decel_Ratio')). If given\n            along with decel_ratio_value, overwrites the placeholder value\n            in the delta row (the only row where this feature carries real\n            cross-phase information).\n        decel_ratio_value: The real computed decel ratio for this completed\n            rep, or None to leave the per-frame placeholder (1.0) in place.\n\n    Returns:\n        numpy.ndarray: Shape (4, num_features), ready for the scaler/model.\n    \"\"\"\n    raw = self._buffer.copy()  # (3, num_features)\n    delta = raw[2, :] - raw[0, :]  # phase3 - phase1\n\n    if decel_ratio_idx is not None and decel_ratio_value is not None:\n        delta[decel_ratio_idx] = decel_ratio_value\n\n    return np.concatenate([raw, delta[np.newaxis, :]], axis=0)  # (4, num_features)",
+          "reason": "This is the direct, faithful port of the notebook's delta-augmentation cell (Section 7, 'DELTA-TIMESTEP AUGMENTATION'). Computing it here (rather than in lstm_runner or session_manager) keeps the buffer the single owner of sequence-shape logic, matching the existing class's responsibility."
+        },
+        {
+          "location": "get_sequence() method (lines 98-105)",
+          "action": "keep_unchanged",
+          "reason": "Still useful as-is for callers who want the raw (3, num_features) buffer (e.g. for DB logging of the 3 captured phases). Renamed conceptually to 'raw sequence' in docstrings only — no behavior change. get_model_sequence() is the new method callers use before inference."
+        }
+      ]
+    },
+    {
+      "path": "inference/scaler_wrapper.py",
+      "change_type": "rename_class_and_extend",
+      "why": "Only applies StandardScaler. The v4 pipeline requires winsorization (IMU clipping) and median imputation to run BEFORE scaling, in that exact order, or the scaled values will not match what the model was trained on (especially for the 6.4% of reps that had missing sensor readings in training — see notebook Section 8 imputation cell).",
+      "changes": [
+        {
+          "location": "Whole file",
+          "action": "rename_file",
+          "old_value": "inference/scaler_wrapper.py (class ScalerWrapper)",
+          "new_value": "inference/preprocessor.py (class Preprocessor)",
+          "reason": "The class's job has grown beyond 'wrap a scaler' to 'replicate the full Section 8 preprocessing chain'. Renaming makes the responsibility honest; ScalerWrapper name would be misleading once winsorization/imputation are added. lstm_runner.py import updated accordingly (see that file's entry)."
+        },
+        {
+          "location": "load() method",
+          "action": "replace",
+          "old_value": "def load(self, path=None):\n    # loads only scaler.pkl",
+          "new_value": "def load(self, scaler_path=None, winsor_path=None, medians_path=None):\n    \"\"\"Load scaler, winsor bounds, and feature medians.\n\n    Each artifact degrades independently and gracefully: if winsor_bounds\n    or feature_medians are missing, that step is skipped (passthrough)\n    rather than failing — matching the existing fallback philosophy of\n    this codebase (mock mode rather than crash).\n\n    Args:\n        scaler_path: Path to scaler.save. Uses Config.PATHS.SCALER_PKL.\n        winsor_path: Path to winsor_bounds.save. Uses Config.PATHS.WINSOR_BOUNDS.\n        medians_path: Path to feature_medians.save. Uses Config.PATHS.FEATURE_MEDIANS.\n\n    Returns:\n        bool: True if the scaler (the only load-bearing artifact) loaded.\n    \"\"\"\n    import joblib\n    scaler_path = Path(scaler_path) if scaler_path else Config.PATHS.SCALER_PKL\n    winsor_path = Path(winsor_path) if winsor_path else Config.PATHS.WINSOR_BOUNDS\n    medians_path = Path(medians_path) if medians_path else Config.PATHS.FEATURE_MEDIANS\n\n    scaler_ok = self._load_scaler(scaler_path, joblib)\n    self._winsor_bounds = self._load_optional_dict(winsor_path, joblib, \"winsor bounds\")\n    self._feature_medians = self._load_optional_dict(medians_path, joblib, \"feature medians\")\n    return scaler_ok",
+          "reason": "Mirrors the three separate joblib.dump() artifacts the notebook produces (scaler.save, winsor_bounds.save, feature_medians.save). Each is loaded with its own try/except so a missing winsor/median file doesn't take down inference entirely, consistent with how this codebase already treats the model file and scaler as independently optional."
+        },
+        {
+          "location": "New private helper: _load_optional_dict(self, path, joblib_module, label)",
+          "action": "add",
+          "new_value": "def _load_optional_dict(self, path, joblib_module, label):\n    \"\"\"Load a joblib dict artifact, returning None on any failure.\n\n    Args:\n        path: Path to the .save file.\n        joblib_module: Imported joblib module (passed in to avoid\n            re-importing per call).\n        label: Human-readable name for log messages.\n\n    Returns:\n        dict or None.\n    \"\"\"\n    if not path.exists():\n        logger.warning(\"%s file not found: %s — skipping this step\", label, path)\n        return None\n    try:\n        d = joblib_module.load(str(path))\n        logger.info(\"%s loaded from %s (%d entries)\", label, path, len(d))\n        return d\n    except Exception as e:\n        logger.error(\"Failed to load %s: %s — skipping this step\", label, e)\n        return None",
+          "reason": "Shared loader for winsor_bounds and feature_medians, both of which are dicts keyed by feature name -> value (winsor: (lo,hi) tuple; medians: float). Keeps load() readable."
+        },
+        {
+          "location": "New method: apply_preprocessing(self, sequence)",
+          "action": "add",
+          "new_value": "def apply_preprocessing(self, sequence):\n    \"\"\"Run the full v4 preprocessing chain: winsorize -> impute -> scale.\n\n    This order is NOT arbitrary — it exactly matches Section 8 of the\n    training notebook (winsorization cell runs before the median\n    imputation cell, which runs before the StandardScaler fit/transform\n    cell). Reversing the order would clip values that imputation should\n    have replaced first, or scale before bounds are enforced.\n\n    Args:\n        sequence: numpy.ndarray, shape (4, num_features) — the model-ready\n            sequence from SequenceBuffer.get_model_sequence().\n\n    Returns:\n        numpy.ndarray: Shape (4, num_features), preprocessed and ready\n            for the TFLite interpreter (still needs a batch dim added by\n            the caller — see lstm_runner.py).\n    \"\"\"\n    sequence = np.array(sequence, dtype=np.float32)\n\n    if self._winsor_bounds:\n        sequence = self._apply_winsor(sequence)\n\n    if self._feature_medians:\n        sequence = self._apply_imputation(sequence)\n\n    return self.transform(sequence)  # existing scaler-only method, unchanged",
+          "reason": "Single entry point for lstm_runner._preprocess() to call instead of transform() directly, so the runner doesn't need to know about the 3-step chain itself."
+        },
+        {
+          "location": "New private helpers: _apply_winsor(self, sequence), _apply_imputation(self, sequence)",
+          "action": "add",
+          "new_value": "def _apply_winsor(self, sequence):\n    \"\"\"Clip IMU columns to the saved [lo, hi] bounds per feature.\n\n    Args:\n        sequence: numpy.ndarray, shape (timesteps, num_features).\n\n    Returns:\n        numpy.ndarray: Same shape, IMU columns clipped.\n    \"\"\"\n    from config.constants import FEATURE_ORDER\n    out = sequence.copy()\n    for fname, (lo, hi) in self._winsor_bounds.items():\n        if fname in FEATURE_ORDER:\n            fidx = FEATURE_ORDER.index(fname)\n            out[:, fidx] = np.clip(out[:, fidx], lo, hi)\n    return out\n\ndef _apply_imputation(self, sequence):\n    \"\"\"Fill NaN values with the saved per-feature training medians.\n\n    Args:\n        sequence: numpy.ndarray, shape (timesteps, num_features).\n\n    Returns:\n        numpy.ndarray: Same shape, NaN replaced.\n    \"\"\"\n    from config.constants import FEATURE_ORDER\n    out = sequence.copy()\n    nan_mask = np.isnan(out)\n    if not nan_mask.any():\n        return out\n    for fname, median in self._feature_medians.items():\n        if fname in FEATURE_ORDER:\n            fidx = FEATURE_ORDER.index(fname)\n            col = out[:, fidx]\n            col[np.isnan(col)] = median\n            out[:, fidx] = col\n    return out",
+          "reason": "Direct ports of the notebook's winsorization and imputation cells (Section 8), but applied to a single live sequence instead of a full train/val/test array. winsor_bounds and feature_medians dicts are keyed by feature name exactly as saved (FEATURE_ORDER entries), so lookups are name-based, not positional, which is more robust to any future column reordering."
+        },
+        {
+          "location": "Class rename throughout file",
+          "action": "replace",
+          "old_value": "class ScalerWrapper:",
+          "new_value": "class Preprocessor:",
+          "reason": "Matches the file rename; reflects expanded responsibility."
+        }
+      ]
+    },
+    {
+      "path": "inference/lstm_runner.py",
+      "change_type": "modify",
+      "why": "Hardcodes (3, 38) shape assumptions, imports ScalerWrapper (renamed/moved), and uses DECISION_THRESHOLD implicitly via Config (already fixed in config.py entry above, no change needed here beyond the import).",
+      "changes": [
+        {
+          "location": "Import block",
+          "action": "replace",
+          "old_value": "from inference.scaler_wrapper import ScalerWrapper",
+          "new_value": "from inference.preprocessor import Preprocessor",
+          "reason": "Matches the scaler_wrapper.py -> preprocessor.py rename."
+        },
+        {
+          "location": "__init__ (line 83)",
+          "action": "replace",
+          "old_value": "self._scaler = ScalerWrapper()",
+          "new_value": "self._preprocessor = Preprocessor()",
+          "reason": "Variable rename to match new class; all subsequent self._scaler references in this file update to self._preprocessor."
+        },
+        {
+          "location": "load() method (lines 87-150)",
+          "action": "modify",
+          "old_value": "self._scaler.load(scaler_path)",
+          "new_value": "self._preprocessor.load(scaler_path=scaler_path)\n# winsor_path and medians_path default to Config.PATHS.WINSOR_BOUNDS /\n# Config.PATHS.FEATURE_MEDIANS inside Preprocessor.load(), no extra args needed\n# unless caller wants to override them explicitly.",
+          "reason": "Preprocessor.load() loads all 3 artifacts; lstm_runner only needs to pass through the scaler path override if one was given, the other two use config defaults."
+        },
+        {
+          "location": "predict() method docstring + sequence shape comment (line 153)",
+          "action": "replace",
+          "old_value": "\"\"\"Run inference on a (3, 38) sequence.\"\"\"",
+          "new_value": "\"\"\"Run inference on a (4, 40) sequence (already includes the delta\n        timestep — pass SequenceBuffer.get_model_sequence(), not get_sequence()).\n        \"\"\"",
+          "reason": "Documents the breaking change in expected input shape and which buffer method callers must use."
+        },
+        {
+          "location": "_preprocess() method (lines 226-241)",
+          "action": "replace",
+          "old_value": "def _preprocess(self, sequence):\n    sequence = np.array(sequence, dtype=np.float32)\n    scaled = self._scaler.transform(sequence)\n    return scaled.reshape(1, *scaled.shape).astype(np.float32)",
+          "new_value": "def _preprocess(self, sequence):\n    \"\"\"Run winsor->impute->scale, then add batch dimension.\n\n    Args:\n        sequence: numpy.ndarray of shape (4, 40) — see predict() docstring.\n\n    Returns:\n        numpy.ndarray: Shape (1, 4, 40) float32 tensor.\n    \"\"\"\n    sequence = np.array(sequence, dtype=np.float32)\n    processed = self._preprocessor.apply_preprocessing(sequence)\n    return processed.reshape(1, *processed.shape).astype(np.float32)",
+          "reason": "Calls the new 3-step preprocessing chain instead of scaler-only transform."
+        },
+        {
+          "location": "_mock_predict() method (lines 243-269)",
+          "action": "keep_unchanged",
+          "reason": "Mock prediction logic (random beta distribution) doesn't depend on feature shape, no change needed."
+        }
+      ]
+    },
+    {
+      "path": "integration/session_manager.py",
+      "change_type": "modify",
+      "why": "Currently: (1) hardcodes load_kg/height_cm/weight_kg/ftr as constants instead of accepting them per-session, (2) never instantiates or calls ESP32Bridge so imu_data is always None and IMU/bar/engineered features are always zero, (3) never computes the real Velocity_Decel_Ratio, (4) pushes only the raw 3-phase sequence into the model instead of the 4-row model sequence.",
+      "changes": [
+        {
+          "location": "Imports",
+          "action": "add",
+          "new_value": "from imu.esp32_bridge import ESP32Bridge\nfrom config.constants import FEATURE_ORDER",
+          "reason": "Needed to instantiate the IMU bridge and to look up Velocity_Decel_Ratio's index for the buffer patch-in."
+        },
+        {
+          "location": "__init__ (lines 41-62)",
+          "action": "modify",
+          "old_value": "self._lstm_runner = LSTMRunner()\nself._session_id = None\nself._exercise_id = 0\n...\nself._lstm_runner.load()",
+          "new_value": "self._lstm_runner = LSTMRunner()\nself._imu_bridge = ESP32Bridge()\nself._imu_bridge.connect()  # mock mode until PHASE_8 hardware lands\n\nself._session_id = None\nself._exercise_id = 0\nself._exercise_name = \"\"\nself._is_active = False\nself._rep_count = 0\n\n# Per-session manual subject input (replaces old hardcoded constants)\nself._subject = {\"height_cm\": 175.0, \"weight_kg\": 75.0, \"ftr\": 1.20}\nself._current_load_kg = 0.0\n\n# Per-rep phase1/phase3 bar velocity, for Velocity_Decel_Ratio computation\nself._phase1_velocity = None\nself._phase3_velocity = None\nself._decel_ratio_idx = FEATURE_ORDER.index(\"Velocity_Decel_Ratio\")\n\nself._lstm_runner.load()",
+          "reason": "ESP32Bridge is instantiated and connected (mock mode, per your confirmation IMU hardware isn't ready yet) so realistic mock IMU samples flow through the pipeline instead of None/zeros. Subject info and load are now per-session state set by start_session(), not hardcoded. Velocity tracking variables support the cross-phase decel-ratio computation."
+        },
+        {
+          "location": "start_session() method signature and body (lines 64-95)",
+          "action": "replace",
+          "old_value": "def start_session(self, exercise_id=0, notes=None):",
+          "new_value": "def start_session(self, exercise_id=0, notes=None, height_cm=None,\n                   weight_kg=None, ftr=None, load_kg=None):\n    \"\"\"Start a new training session.\n\n    Args:\n        exercise_id: Exercise type (0=Squat, 1=Deadlift).\n        notes: Optional notes.\n        height_cm: Subject height in cm, manual per-session input.\n            Defaults to 175.0 if not provided.\n        weight_kg: Subject weight in kg, manual per-session input.\n            Defaults to 75.0 if not provided.\n        ftr: Femur-to-tibia ratio, manual per-session input.\n            Defaults to 1.20 (population-average from training data)\n            if not provided.\n        load_kg: Barbell load for this session, manual per-session input.\n            Defaults to 0.0 if not provided.\n\n    Returns:\n        int: New session ID.\n\n    Side Effects:\n        Creates DB record (including new subject columns), resets\n        pipeline, starts processing.\n    \"\"\"\n    self._exercise_id = exercise_id\n    self._exercise_name = Config.EXERCISES.get_name(exercise_id)\n\n    self._subject = {\n        \"height_cm\": height_cm if height_cm is not None else 175.0,\n        \"weight_kg\": weight_kg if weight_kg is not None else 75.0,\n        \"ftr\": ftr if ftr is not None else 1.20,\n    }\n    self._current_load_kg = load_kg if load_kg is not None else 0.0\n\n    self._session_id = create_session(\n        exercise_id, self._exercise_name, notes,\n        height_cm=self._subject[\"height_cm\"],\n        weight_kg=self._subject[\"weight_kg\"],\n        ftr=self._subject[\"ftr\"],\n    )\n    self._is_active = True\n    self._rep_count = 0\n    self._phase1_velocity = None\n    self._phase3_velocity = None\n\n    self._frame_processor.reset_session()\n    self._sequence_buffer.reset()\n\n    logger.info(\n        \"Session %d started (exercise=%s, height=%.1fcm, weight=%.1fkg, ftr=%.2f, load=%.1fkg)\",\n        self._session_id, self._exercise_name,\n        self._subject[\"height_cm\"], self._subject[\"weight_kg\"],\n        self._subject[\"ftr\"], self._current_load_kg\n    )\n    return self._session_id",
+          "reason": "Accepts the manual subject inputs you confirmed (height/weight/FTR per-session, same pattern as the pre-existing height/weight constants) plus load_kg, stores them for use in process_frame_result(), and persists them to the DB via the updated create_session() signature (see database/queries.py entry)."
+        },
+        {
+          "location": "process_frame_result() method, context dict construction (lines 150-163)",
+          "action": "replace",
+          "old_value": "context = {\n    \"rep_phase\": rep_event.phase,\n    \"exercise_id\": self._exercise_id,\n    \"load_kg\": 0.0,\n    \"height_cm\": 175.0,\n    \"weight_kg\": 75.0,\n    \"ftr\": 0.0,\n}\nfeatures = self._feature_engineer.engineer(\n    frame_result.landmarks, frame_result.angles, context=context,\n)",
+          "new_value": "imu_sample = self._imu_bridge.read_sample()\n\ncontext = {\n    \"rep_phase\": rep_event.phase,\n    \"exercise_id\": self._exercise_id,\n    \"load_kg\": self._current_load_kg,\n}\nfeatures = self._feature_engineer.engineer(\n    frame_result.landmarks, frame_result.angles,\n    imu_data=imu_sample, context=context, subject=self._subject,\n)\n\n# Track bar velocity at phase boundaries for Velocity_Decel_Ratio\nif rep_event.phase == 1:\n    self._phase1_velocity = imu_sample.get(\"v_bar_velocity\", 0.0)\nelif rep_event.phase == 3:\n    self._phase3_velocity = imu_sample.get(\"v_bar_velocity\", 0.0)",
+          "reason": "Real (currently mock, per your confirmation) IMU data now flows into feature_engineer.engineer() instead of always being None — this activates the IMU, bar, and IMU_Acc_Magnitude/Knee_Hip_Coupling features that were previously silently zero. Subject dict (height/weight/ftr) is passed through so FTR/BMI/height/weight features are populated correctly. load_kg now comes from the session's actual manual input instead of a hardcoded 0.0. Bar velocity is captured at phase 1 and phase 3 specifically, since those are the two readings Velocity_Decel_Ratio needs."
+        },
+        {
+          "location": "process_frame_result() method, inference call (lines 173-180)",
+          "action": "replace",
+          "old_value": "if not self._sequence_buffer.is_ready():\n    return None\n\nsequence = self._sequence_buffer.get_sequence()\nresult = self._lstm_runner.predict(sequence)\nself._sequence_buffer.reset()",
+          "new_value": "if not self._sequence_buffer.is_ready():\n    return None\n\n# Compute the real Velocity_Decel_Ratio now that phase1 and phase3\n# velocities are both known (was a 1.0 placeholder during per-frame\n# feature engineering — see feature_engineer._compute_engineered_features)\ndecel_ratio = 1.0\nif self._phase1_velocity is not None and self._phase3_velocity is not None:\n    decel_ratio = self._phase3_velocity / (abs(self._phase1_velocity) + 1e-6)\n\nsequence = self._sequence_buffer.get_model_sequence(\n    decel_ratio_idx=self._decel_ratio_idx,\n    decel_ratio_value=decel_ratio,\n)\nresult = self._lstm_runner.predict(sequence)\nself._sequence_buffer.reset()\nself._phase1_velocity = None\nself._phase3_velocity = None",
+          "reason": "Replicates the notebook's Velocity_Decel_Ratio formula (Vel_Ph3 / (|Vel_Ph1| + 1e-6), Section 4f) using the real phase1/phase3 bar velocities captured during this rep, patches it into the delta row (the only row where the cross-phase ratio is meaningful), and uses get_model_sequence() (4, 40) instead of get_sequence() (3, 38) so the model receives the shape it was trained on."
+        },
+        {
+          "location": "stop_session() / frame_processor / session_id properties",
+          "action": "keep_unchanged",
+          "reason": "No shape or feature dependency, unaffected by this upgrade."
+        }
+      ]
+    },
+    {
+      "path": "imu/esp32_bridge.py",
+      "change_type": "no_code_change_just_wiring",
+      "why": "Code itself is already correct mock behavior and matches the field names feature_engineer.py expects — the only problem was that nothing in the app ever called it. Fixed by the session_manager.py changes above.",
+      "changes": [
+        {
+          "location": "Whole file",
+          "action": "keep_unchanged",
+          "reason": "connect()/read_sample()/_mock_sample() already return exactly the dict shape (acc_x..gyro_z, v_bar_velocity, p_bar_power, smoothness_jerk, timestamp_ms) that the new feature_engineer.py and session_manager.py expect. No logic changes needed — confirmed against your answer that IMU is mock-only for now. When PHASE_8 hardware lands, only _parse_imu_packet() and connect()'s TODO block need real BLE code; the rest of the app already consumes read_sample() correctly once session_manager.py is updated."
+        }
+      ]
+    },
+    {
+      "path": "database/schema.sql",
+      "change_type": "modify",
+      "why": "sessions table has no columns for the manual per-session subject inputs (height_cm, weight_kg, ftr) that are now required by the model. They were previously hardcoded constants nobody persisted.",
+      "changes": [
+        {
+          "location": "sessions table definition",
+          "action": "add_columns",
+          "new_value": "ALTER TABLE additions (or rebuild CREATE TABLE for fresh installs):\n    height_cm   REAL DEFAULT 175.0,\n    weight_kg   REAL DEFAULT 75.0,\n    ftr         REAL DEFAULT 1.20",
+          "reason": "Persists the manual subject input you confirmed (per-session, like the old hardcoded height/weight) so it's recoverable for session history/export, and so SessionManager has a durable record rather than only in-memory state that's lost on restart mid-session."
+        },
+        {
+          "location": "New migration note at top of file",
+          "action": "add",
+          "new_value": "-- v4 MIGRATION NOTE: existing sessions.db files created before this change\n-- need: ALTER TABLE sessions ADD COLUMN height_cm REAL DEFAULT 175.0;\n--       ALTER TABLE sessions ADD COLUMN weight_kg REAL DEFAULT 75.0;\n--       ALTER TABLE sessions ADD COLUMN ftr REAL DEFAULT 1.20;\n-- Run scripts/migrate_v4_schema.py (new script, see scripts/ entry) or\n-- delete data/sessions.db to let CREATE TABLE IF NOT EXISTS rebuild fresh.",
+          "reason": "schema.sql uses CREATE TABLE IF NOT EXISTS, which silently does nothing on an existing sessions.db — new columns won't appear without an explicit ALTER TABLE or a fresh DB file. Flagging this prevents a confusing 'column does not exist' error the first time someone runs the upgraded code against their existing data/sessions.db (visible in the uploaded zip as data/sessions.db-shm / -wal, meaning a real DB already exists on disk)."
+        }
+      ]
+    },
+    {
+      "path": "database/models.py",
+      "change_type": "modify",
+      "why": "Session dataclass doesn't carry the new columns, so to_dict()/from_row() would silently drop them even after the schema is updated.",
+      "changes": [
+        {
+          "location": "Session dataclass fields (lines ~14-30)",
+          "action": "add",
+          "new_value": "height_cm: float = 175.0\nweight_kg: float = 75.0\nftr: float = 1.20",
+          "reason": "Mirrors the new schema.sql columns."
+        },
+        {
+          "location": "Session.to_dict() (lines ~36-50)",
+          "action": "add",
+          "new_value": "\"height_cm\": self.height_cm,\n\"weight_kg\": self.weight_kg,\n\"ftr\": self.ftr,",
+          "reason": "Exposes the new fields to the API/frontend."
+        },
+        {
+          "location": "Session.from_row() (lines ~52-66)",
+          "action": "add",
+          "new_value": "height_cm=row[\"height_cm\"],\nweight_kg=row[\"weight_kg\"],\nftr=row[\"ftr\"],",
+          "reason": "Reads the new columns back from sqlite3.Row."
+        }
+      ]
+    },
+    {
+      "path": "database/queries.py",
+      "change_type": "modify",
+      "why": "create_session() signature doesn't accept the new subject fields.",
+      "changes": [
+        {
+          "location": "create_session() function (lines 19-39)",
+          "action": "replace",
+          "old_value": "def create_session(exercise_id, exercise_name, notes=None):\n    conn.execute(\n        \"INSERT INTO sessions (exercise_id, exercise_name, notes) VALUES (?, ?, ?)\",\n        (exercise_id, exercise_name, notes)\n    )",
+          "new_value": "def create_session(exercise_id, exercise_name, notes=None,\n                    height_cm=175.0, weight_kg=75.0, ftr=1.20):\n    \"\"\"Create a new training session.\n\n    Args:\n        exercise_id: Numeric exercise identifier (0=Squat, 1=Deadlift).\n        exercise_name: Human-readable exercise name string.\n        notes: Optional user notes for the session.\n        height_cm: Subject height in cm, manual per-session input.\n        weight_kg: Subject weight in kg, manual per-session input.\n        ftr: Femur-to-tibia ratio, manual per-session input.\n\n    Returns:\n        int: The newly created session ID.\n    \"\"\"\n    conn = get_connection()\n    cursor = conn.execute(\n        \"\"\"INSERT INTO sessions\n               (exercise_id, exercise_name, notes, height_cm, weight_kg, ftr)\n           VALUES (?, ?, ?, ?, ?, ?)\"\"\",\n        (exercise_id, exercise_name, notes, height_cm, weight_kg, ftr)\n    )\n    conn.commit()\n    session_id = cursor.lastrowid\n    logger.info(\n        \"Created session %d for %s (h=%.1fcm w=%.1fkg ftr=%.2f)\",\n        session_id, exercise_name, height_cm, weight_kg, ftr\n    )\n    return session_id",
+          "reason": "Matches the new schema columns and the new SessionManager.start_session() call signature."
+        }
+      ]
+    },
+    {
+      "path": "api/routes.py",
+      "change_type": "modify",
+      "why": "POST /api/session/start needs to accept the manual subject inputs from the frontend and pass them through to SessionManager. Also the dev-only inference/test endpoint hardcodes the old (3, 38) shape.",
+      "changes": [
+        {
+          "location": "session_start() route (lines 94-117)",
+          "action": "replace",
+          "old_value": "data = request.get_json(silent=True) or {}\nexercise_id = data.get(\"exercise_id\", 0)\nnotes = data.get(\"notes\")\n\nexercise_name = Config.EXERCISES.get_name(exercise_id)\nsession_id = create_session(exercise_id, exercise_name, notes)",
+          "new_value": "data = request.get_json(silent=True) or {}\nexercise_id = data.get(\"exercise_id\", 0)\nnotes = data.get(\"notes\")\nheight_cm = data.get(\"height_cm\", 175.0)\nweight_kg = data.get(\"weight_kg\", 75.0)\nftr = data.get(\"ftr\", 1.20)\nload_kg = data.get(\"load_kg\", 0.0)\n\nexercise_name = Config.EXERCISES.get_name(exercise_id)\n\n# NOTE: this module-level create_session() call only persists the DB row.\n# The actual live SessionManager instance (which owns FeatureEngineer/\n# SequenceBuffer/LSTMRunner state) is a SEPARATE object constructed in\n# integration/session_manager.py and driven by integration/main_loop.py.\n# This route's job is just to satisfy the existing REST contract; the real\n# per-session subject state lives on SessionManager once main_loop wires\n# session_start API calls through to session_mgr.start_session(...) instead\n# of calling create_session() directly here. See 'known_pre_existing_gap'\n# in this plan's notes for this file.\nsession_id = create_session(\n    exercise_id, exercise_name, notes,\n    height_cm=height_cm, weight_kg=weight_kg, ftr=ftr,\n)",
+          "reason": "Accepts height_cm/weight_kg/ftr/load_kg from the POST body (manual per-session input you confirmed) and persists them. Body docstring below is also updated to document the new fields."
+        },
+        {
+          "location": "session_start() docstring (lines 96-101)",
+          "action": "replace",
+          "old_value": "\"\"\"Start a new training session.\nBody:\n    exercise_id (int): 0=Squat, 1=Deadlift.\n    notes (str, optional): Session notes.\n\"\"\"",
+          "new_value": "\"\"\"Start a new training session.\nBody:\n    exercise_id (int): 0=Squat, 1=Deadlift.\n    notes (str, optional): Session notes.\n    height_cm (float, optional): Subject height, default 175.0.\n    weight_kg (float, optional): Subject weight, default 75.0.\n    ftr (float, optional): Femur-to-tibia ratio, default 1.20\n        (population average from training data). Required for the v4\n        model's Femur_Tibia_Ratio feature; BMI is auto-derived from\n        height_cm/weight_kg if not given.\n    load_kg (float, optional): Barbell load for this session, default 0.0.\n\"\"\"",
+          "reason": "Documents the new request contract for frontend/API consumers."
+        },
+        {
+          "location": "inference_test() route (lines 185-195)",
+          "action": "replace",
+          "old_value": "dummy_seq = np.random.randn(3, 38).astype(np.float32)",
+          "new_value": "dummy_seq = np.random.randn(4, 40).astype(np.float32)",
+          "reason": "Dev/test endpoint must match the real model's input shape or it validates nothing useful."
+        }
+      ],
+      "known_pre_existing_gap_not_introduced_by_this_upgrade": "api/routes.py keeps its own module-level `_lstm_runner = LSTMRunner()` instance, completely separate from the one inside integration/session_manager.py's SessionManager. This means /api/session/start's create_session() call does NOT currently flow into the live SessionManager's start_session() (which is what actually needs the subject dict for inference). This disconnect predates this upgrade. Recommended follow-up (not included in this plan's file changes since it's an architectural decision, not a v4-compatibility fix): give api/routes.py a reference to the live SessionManager instance (same pattern as set_frame_processor()) and call session_mgr.start_session(...) from this route instead of create_session() directly."
+    },
+    {
+      "path": "models/README.md",
+      "change_type": "modify",
+      "why": "Documents the old 2-artifact contract (model_quantized.tflite, scaler.pkl) — missing the 2 new required artifacts and the renamed scaler file.",
+      "changes": [
+        {
+          "location": "Expected Files table",
+          "action": "replace",
+          "old_value": "| `model_quantized.tflite` | INT8 quantized LSTM model | Training notebook export |\n| `model_fullprec.tflite` | Full precision LSTM model | Training notebook export |\n| `scaler.pkl` | StandardScaler from training | joblib.dump() from training |",
+          "new_value": "| `model_quantized.tflite` | INT8 quantized BiLSTM+MHA model, input shape (1,4,40) | Section 13 of training notebook |\n| `model_fullprec.tflite` | Full precision fallback | Section 13 of training notebook |\n| `scaler.save` | StandardScaler fit on (4,40) sequences | Section 8 of training notebook |\n| `winsor_bounds.save` | dict[feature_name -> (lo, hi)] for IMU clipping | Section 8 of training notebook |\n| `feature_medians.save` | dict[feature_name -> median] for NaN imputation | Section 8 of training notebook |\n| `deployment_config.save` | dict with 'threshold' (0.359), 'feature_cols', 'window_size_model' | Section 13 of training notebook |",
+          "reason": "Reflects every artifact the notebook now produces and that the upgraded inference pipeline loads. deployment_config.save isn't strictly required by the code changes above (threshold is hardcoded into config.py as 0.359 per this plan), but listing it documents where that number came from and gives an alternative load path if you'd rather read the threshold dynamically than hardcode it."
+        },
+        {
+          "location": "Notes section",
+          "action": "add",
+          "new_value": "- Model expects exactly 40 features in the order defined by `config.constants.FEATURE_ORDER` and a 4-timestep sequence (3 real phases + 1 computed delta row). See `inference/sequence_buffer.py:get_model_sequence()`.\n- winsor_bounds.save and feature_medians.save are optional at runtime (inference degrades gracefully without them, same fallback philosophy as the model/scaler) but predictions will not match training-time behavior without them, especially for sessions with occluded/missing sensor frames.",
+          "reason": "Documents the breaking shape/order change for whoever deploys model files to the Pi."
+        }
+      ]
+    },
+    {
+      "path": "PLACEHOLDERS.md",
+      "change_type": "modify",
+      "why": "Tracks known TODOs — several are now resolved or changed by this upgrade.",
+      "changes": [
+        {
+          "location": "Active Placeholders table, PHASE_6 rows",
+          "action": "replace",
+          "old_value": "| PHASE_6 | `inference/feature_engineer.py` | IMU features | 6 IMU features are zeros until ESP32-S3 connected |\n| PHASE_6 | `inference/feature_engineer.py` | Bar performance | 3 bar features are zeros until IMU connected |",
+          "new_value": "| PHASE_6 | `inference/feature_engineer.py` | IMU features | RESOLVED for mock — ESP32Bridge now wired into session_manager.py, mock IMU samples flow through. Real values still pending PHASE_8 hardware. |\n| PHASE_6 | `inference/feature_engineer.py` | Bar performance | RESOLVED for mock — same as above, mock v_bar_velocity/p_bar_power/smoothness_jerk now active. |",
+          "reason": "Per your confirmation (IMU mock-still-ongoing, decided to wire mock data through now rather than wait for hardware)."
+        },
+        {
+          "location": "Active Placeholders table, new row",
+          "action": "add",
+          "new_value": "| PHASE_6 | `inference/feature_engineer.py` | Femur_Tibia_Ratio, BMI | Manual per-session input via /api/session/start (height_cm, weight_kg, ftr). BMI auto-computed if not given. No automatic subject-profile lookup. |",
+          "reason": "New placeholder introduced by the v4 model's 2 new subject-context features — documents the decision (manual input, not profile DB) for future reference."
+        },
+        {
+          "location": "Active Placeholders table, new row",
+          "action": "add",
+          "new_value": "| PHASE_6 | `inference/feature_engineer.py` | Velocity_Decel_Ratio | Per-frame placeholder is neutral (1.0); real value computed by SessionManager from mock phase1/phase3 v_bar_velocity once a full rep completes, patched into the delta timestep row only. |",
+          "reason": "Documents the cross-phase nature of this feature and where the real computation lives (session_manager.py, not feature_engineer.py)."
+        },
+        {
+          "location": "Resolved Placeholders section",
+          "action": "replace",
+          "old_value": "_None yet_",
+          "new_value": "- PHASE_4 partial: model/scaler loading code now targets the correct v4 filenames and shapes (model file itself still needs to be deployed manually per existing PHASE_4 note).",
+          "reason": "Tracks that the loading code is v4-ready even though the actual .tflite/.save files still need to be copied onto the Pi by you, same as before."
+        }
+      ]
+    },
+    {
+      "path": "tests/test_03_inference/test_full_inference.py",
+      "change_type": "modify",
+      "why": "Hardcodes the old (38,) and (3, 38) shapes; tests a now-deleted method (_compute_asymmetry_features as a standalone dead-code check) in a way that no longer reflects how it's actually used.",
+      "changes": [
+        {
+          "location": "_make_angles() test fixture",
+          "action": "keep_unchanged",
+          "reason": "Still valid raw angle input for the angle calculator / asymmetry computation; angles dict shape unchanged. Only what feature_engineer.engineer() does with it changes."
+        },
+        {
+          "location": "test_feature_engineer_returns_38_features()",
+          "action": "rename_and_update",
+          "old_value": "def test_feature_engineer_returns_38_features(self):\n    features = fe.engineer(self._make_landmarks(), self._make_angles())\n    assert features.shape == (38,)",
+          "new_value": "def test_feature_engineer_returns_40_features(self):\n    fe = FeatureEngineer()\n    features = fe.engineer(self._make_landmarks(), self._make_angles())\n    assert features.shape == (40,)\n    assert features.dtype == np.float32",
+          "reason": "Matches the new TOTAL_FEATURES=40."
+        },
+        {
+          "location": "test_feature_engineer_asymmetry_calculation()",
+          "action": "update",
+          "old_value": "asym = fe._compute_asymmetry_features(angles)\nassert asym.shape == (3,)\nassert asym[0] == abs(angles[\"LEFT_HIP\"] - angles[\"RIGHT_HIP\"])",
+          "new_value": "asym = fe._compute_asymmetry_features(angles)\nassert asym.shape == (3,)\nassert asym[0] == abs(angles[\"LEFT_HIP\"] - angles[\"RIGHT_HIP\"])\nassert asym[1] == abs(angles[\"LEFT_KNEE\"] - angles[\"RIGHT_KNEE\"])\nassert asym[2] == abs(angles[\"LEFT_ANKLE\"] - angles[\"RIGHT_ANKLE\"])\n\ndef test_asymmetry_is_actually_used_in_output_vector(self):\n    \"\"\"Was dead code before this upgrade — now must appear at indices 31-33.\"\"\"\n    fe = FeatureEngineer()\n    angles = self._make_angles()\n    features = fe.engineer(self._make_landmarks(), angles)\n    expected_hip_asym = abs(angles[\"LEFT_HIP\"] - angles[\"RIGHT_HIP\"])\n    assert abs(features[31] - expected_hip_asym) < 1e-5",
+          "reason": "Original test only checked the helper method in isolation, which is how it stayed dead code undetected. New test confirms it's actually wired into engineer()'s output at the correct index."
+        },
+        {
+          "location": "test_full_pipeline_mock()",
+          "action": "update",
+          "old_value": "for phase in [1, 2, 3]:\n    ctx = {\"rep_phase\": phase, \"exercise_id\": 0}\n    features = fe.engineer(self._make_landmarks(), self._make_angles(), context=ctx)\n    buf.push(phase, features)\nassert buf.is_ready()\nresult = runner.predict(buf.get_sequence())",
+          "new_value": "for phase in [1, 2, 3]:\n    ctx = {\"rep_phase\": phase, \"exercise_id\": 0, \"load_kg\": 60.0}\n    subject = {\"height_cm\": 178.0, \"weight_kg\": 80.0, \"ftr\": 1.18}\n    imu = {\"acc_x\": 0.1, \"acc_y\": -9.8, \"acc_z\": 0.2,\n           \"gyro_x\": 1.0, \"gyro_y\": 2.0, \"gyro_z\": 0.5,\n           \"v_bar_velocity\": 0.4, \"p_bar_power\": 300.0, \"smoothness_jerk\": 0.1}\n    features = fe.engineer(\n        self._make_landmarks(), self._make_angles(),\n        imu_data=imu, context=ctx, subject=subject,\n    )\n    buf.push(phase, features)\nassert buf.is_ready()\nmodel_seq = buf.get_model_sequence(decel_ratio_idx=37, decel_ratio_value=0.85)\nassert model_seq.shape == (4, 40)\nresult = runner.predict(model_seq)",
+          "reason": "Exercises the full new call signature (imu_data, subject) and the new get_model_sequence() 4-row output, instead of the old 3-row get_sequence()."
+        },
+        {
+          "location": "test_inference_latency_under_25ms()",
+          "action": "update",
+          "old_value": "seq = np.random.randn(3, 38).astype(np.float32)",
+          "new_value": "seq = np.random.randn(4, 40).astype(np.float32)",
+          "reason": "Matches new model input shape. Note: BiLSTM+MHA is heavier than the old plain LSTM — the <25ms latency budget may need re-validation on actual Pi 4B hardware once the real .tflite file is deployed; this is a hardware benchmark concern, not a code-correctness one, so the assertion threshold itself is left unchanged here pending real measurement."
+        }
+      ]
+    },
+    {
+      "path": "tests/test_03_inference/test_sequence_buffer.py",
+      "change_type": "modify",
+      "why": "Not shown in the uploaded zip listing in full detail, but per the project structure this file exists and almost certainly asserts the old 3-row shape and lacks any delta-row test.",
+      "changes": [
+        {
+          "location": "Any assertion of buffer shape == (3, 38) or similar",
+          "action": "update",
+          "new_value": "Update to (3, 40) for the raw push-buffer (get_sequence()), and add a new test asserting get_model_sequence() returns (4, 40) with row 3 (index 3, the 4th row) equal to row 2 minus row 0 of the raw buffer.",
+          "reason": "New method needs direct unit coverage given it implements the most error-prone piece of this whole upgrade (the delta-row math)."
+        }
+      ],
+      "note": "This file's exact current content wasn't pasted into context — recommend opening it directly to apply the equivalent of the test_full_inference.py changes (shape updates, new get_model_sequence test) once you have it in front of you."
+    },
+    {
+      "path": "scripts/validate_model.py",
+      "change_type": "no_change_needed",
+      "why": "Already reads input/output shape dynamically from the loaded interpreter (interpreter.get_input_details()[0]['shape']) rather than hardcoding (3,38) anywhere, and generates its dummy test input from that same dynamic shape. Will automatically validate (1,4,40) once the new model_quantized.tflite is deployed, no code change required.",
+      "changes": []
+    },
+    {
+      "path": "scripts/migrate_v4_schema.py",
+      "change_type": "new_file",
+      "why": "data/sessions.db-shm and -wal exist in the uploaded project, meaning a real SQLite DB with the OLD schema already exists on the Pi. schema.sql's CREATE TABLE IF NOT EXISTS will NOT add the new columns to that existing file.",
+      "changes": [
+        {
+          "location": "Whole file (new)",
+          "action": "add",
+          "new_value": "#!/usr/bin/env python3\n\"\"\"\nscripts/migrate_v4_schema.py\nPurpose: One-time migration to add v4 model columns (height_cm, weight_kg,\n         ftr) to an existing sessions.db created before the v4 upgrade.\n         Safe to run multiple times (checks column existence first).\n\"\"\"\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).parent.parent))\nfrom config.config import Config\nfrom database.db import get_connection\n\nNEW_COLUMNS = {\n    \"height_cm\": \"REAL DEFAULT 175.0\",\n    \"weight_kg\": \"REAL DEFAULT 75.0\",\n    \"ftr\": \"REAL DEFAULT 1.20\",\n}\n\ndef migrate():\n    conn = get_connection()\n    existing = {row[1] for row in conn.execute(\"PRAGMA table_info(sessions)\")}\n    for col, ddl in NEW_COLUMNS.items():\n        if col not in existing:\n            print(f\"Adding column: {col}\")\n            conn.execute(f\"ALTER TABLE sessions ADD COLUMN {col} {ddl}\")\n        else:\n            print(f\"Column already exists, skipping: {col}\")\n    conn.commit()\n    print(\"Migration complete.\")\n\nif __name__ == \"__main__\":\n    migrate()",
+          "reason": "Without this, the first session_manager.start_session() call against the existing data/sessions.db after deploying the upgraded code will raise 'sqlite3.OperationalError: table sessions has no column named height_cm'. This script is the safe fix — run once after deploying code changes, before starting the server."
+        }
+      ]
+    },
+    {
+      "path": "CHANGELOG.md",
+      "change_type": "modify",
+      "why": "Should record this as a breaking change for anyone else touching the repo.",
+      "changes": [
+        {
+          "location": "Top of file, new entry",
+          "action": "add",
+          "new_value": "## [Unreleased] — v4 model compatibility upgrade\n### BREAKING\n- Feature vector grew from 38 to 40 features; column order changed completely\n  (raw L/R angles removed, replaced by asymmetry + 4 new engineered features +\n  2 new subject features). Old model_quantized.tflite / scaler.pkl are NOT\n  compatible with the upgraded inference code.\n- Sequence length grew from 3 to 4 timesteps (added computed delta row).\n- scaler.pkl renamed to scaler.save; two new required-for-correctness\n  artifacts added: winsor_bounds.save, feature_medians.save.\n- Decision threshold changed from 0.5 to 0.359 (notebook-optimized).\n- sessions table gained height_cm, weight_kg, ftr columns — run\n  scripts/migrate_v4_schema.py against any existing data/sessions.db.\n### Added\n- ESP32Bridge now wired into the live inference loop (mock mode).\n- Manual per-session subject input (height/weight/FTR) via /api/session/start.\n### Fixed\n- _compute_asymmetry_features() was dead code, never called from\n  FeatureEngineer.engineer() — now actually used.",
+          "reason": "Standard changelog hygiene for a breaking change of this size."
+        }
+      ]
+    }
+  ],
+  "deployment_checklist": [
+    "1. Copy model_quantized.tflite, model_fullprec.tflite, scaler.save, winsor_bounds.save, feature_medians.save from the executed v4 notebook's saved_models/ into models/ on the Pi.",
+    "2. Apply all file changes listed above.",
+    "3. Run scripts/migrate_v4_schema.py once against the existing data/sessions.db.",
+    "4. Run scripts/validate_model.py — should report input shape (1, 4, 40).",
+    "5. Run python -m pytest tests/test_03_inference/ -v — confirm updated shape assertions pass.",
+    "6. Manually smoke-test one full session via the API: POST /api/session/start with height_cm/weight_kg/ftr/load_kg, run a rep through the vision pipeline, confirm /api/session/<id> shows a real (non-mock) inference_label.",
+    "7. Check logs/app.log for 'LSTM model loaded' and 'Scaler loaded' (not the mock-mode warnings) to confirm real artifacts were picked up, not silently falling back to mock."
+  ]
+}

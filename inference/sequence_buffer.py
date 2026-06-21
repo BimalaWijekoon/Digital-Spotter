@@ -37,14 +37,10 @@ class SequenceBuffer:
         Side Effects:
             Allocates internal buffer array.
         """
-        self._seq_len = (
-            sequence_length or Config.INFERENCE.SEQUENCE_LENGTH
-        )
-        self._num_features = Config.INFERENCE.NUM_FEATURES
-        self._buffer = np.zeros(
-            (self._seq_len, self._num_features),
-            dtype=np.float32,
-        )
+        self._seq_len = sequence_length or Config.INFERENCE.SEQUENCE_LENGTH  # 3 — raw phases only
+        self._num_features = Config.INFERENCE.NUM_FEATURES  # 40
+        self._buffer = np.zeros((self._seq_len, self._num_features), dtype=np.float32)
+        # unchanged shape/logic for the RAW 3-phase buffer — delta row is added separately, see get_model_sequence()
         self._filled = [False] * self._seq_len
         self._count = 0
 
@@ -96,13 +92,41 @@ class SequenceBuffer:
         return self._count >= self._seq_len
 
     def get_sequence(self):
-        """Get the complete sequence for LSTM inference.
+        """Get the complete raw sequence (3 phases).
 
         Returns:
             numpy.ndarray: Shape (sequence_length, num_features).
                 Returns zeros if buffer is not ready.
         """
         return self._buffer.copy()
+
+    def get_model_sequence(self, decel_ratio_idx=None, decel_ratio_value=None):
+        """Build the (4, num_features) sequence the model actually expects.
+
+        Appends a 4th row = phase3_features - phase1_features (the delta
+        timestep), matching the v4 notebook's augmentation exactly:
+            X_delta = X[:, 2, :] - X[:, 0, :]
+            X_aug = concatenate([X, X_delta], axis=1)
+
+        Args:
+            decel_ratio_idx: Index of Velocity_Decel_Ratio within the feature
+                vector (FEATURE_ORDER.index('Velocity_Decel_Ratio')). If given
+                along with decel_ratio_value, overwrites the placeholder value
+                in the delta row (the only row where this feature carries real
+                cross-phase information).
+            decel_ratio_value: The real computed decel ratio for this completed
+                rep, or None to leave the per-frame placeholder (1.0) in place.
+
+        Returns:
+            numpy.ndarray: Shape (4, num_features), ready for the scaler/model.
+        """
+        raw = self._buffer.copy()  # (3, num_features)
+        delta = raw[2, :] - raw[0, :]  # phase3 - phase1
+
+        if decel_ratio_idx is not None and decel_ratio_value is not None:
+            delta[decel_ratio_idx] = decel_ratio_value
+
+        return np.concatenate([raw, delta[np.newaxis, :]], axis=0)  # (4, num_features)
 
     def reset(self):
         """Clear buffer for next rep.

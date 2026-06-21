@@ -23,6 +23,8 @@ from inference.feature_engineer import FeatureEngineer
 from inference.sequence_buffer import SequenceBuffer
 from inference.lstm_runner import LSTMRunner
 from vision.frame_processor import FrameProcessor
+from imu.esp32_bridge import ESP32Bridge
+from config.constants import FEATURE_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,8 @@ class SessionManager:
         self._feature_engineer = FeatureEngineer()
         self._sequence_buffer = SequenceBuffer()
         self._lstm_runner = LSTMRunner()
+        self._imu_bridge = ESP32Bridge()
+        self._imu_bridge.connect()  # mock mode until PHASE_8 hardware lands
 
         self._session_id = None
         self._exercise_id = 0
@@ -56,40 +60,74 @@ class SessionManager:
         self._is_active = False
         self._rep_count = 0
 
+        # Per-session manual subject input (replaces old hardcoded constants)
+        self._subject = {"height_cm": 175.0, "weight_kg": 75.0, "ftr": 1.20}
+        self._current_load_kg = 0.0
+
+        # Per-rep phase1/phase3 bar velocity, for Velocity_Decel_Ratio computation
+        self._phase1_velocity = None
+        self._phase3_velocity = None
+        self._decel_ratio_idx = FEATURE_ORDER.index("Velocity_Decel_Ratio")
+
         # Load model
         self._lstm_runner.load()
 
         logger.info("SessionManager initialized")
 
-    def start_session(self, exercise_id=0, notes=None):
+    def start_session(self, exercise_id=0, notes=None, height_cm=None,
+                       weight_kg=None, ftr=None, load_kg=None):
         """Start a new training session.
 
         Args:
             exercise_id: Exercise type (0=Squat, 1=Deadlift).
             notes: Optional notes.
+            height_cm: Subject height in cm, manual per-session input.
+                Defaults to 175.0 if not provided.
+            weight_kg: Subject weight in kg, manual per-session input.
+                Defaults to 75.0 if not provided.
+            ftr: Femur-to-tibia ratio, manual per-session input.
+                Defaults to 1.20 (population-average from training data)
+                if not provided.
+            load_kg: Barbell load for this session, manual per-session input.
+                Defaults to 0.0 if not provided.
 
         Returns:
             int: New session ID.
 
         Side Effects:
-            Creates DB record, resets pipeline, starts processing.
+            Creates DB record (including new subject columns), resets
+            pipeline, starts processing.
         """
         self._exercise_id = exercise_id
         self._exercise_name = Config.EXERCISES.get_name(exercise_id)
 
+        self._subject = {
+            "height_cm": height_cm if height_cm is not None else 175.0,
+            "weight_kg": weight_kg if weight_kg is not None else 75.0,
+            "ftr": ftr if ftr is not None else 1.20,
+        }
+        self._current_load_kg = load_kg if load_kg is not None else 0.0
+
         self._session_id = create_session(
-            exercise_id, self._exercise_name, notes
+            exercise_id, self._exercise_name, notes,
+            height_cm=self._subject["height_cm"],
+            weight_kg=self._subject["weight_kg"],
+            ftr=self._subject["ftr"],
         )
         self._is_active = True
         self._rep_count = 0
+        self._phase1_velocity = None
+        self._phase3_velocity = None
 
         # Reset pipeline state
         self._frame_processor.reset_session()
         self._sequence_buffer.reset()
 
         logger.info(
-            "Session %d started (exercise=%s)",
-            self._session_id, self._exercise_name
+            "Session %d started (exercise=%s, height=%.1fcm, weight=%.1fkg, ftr=%.2f, load=%.1fkg)",
+            self._session_id, self._exercise_name,
+            self._subject["height_cm"], self._subject["weight_kg"],
+            self._subject["ftr"], self._current_load_kg
         )
 
         return self._session_id
@@ -148,19 +186,23 @@ class SessionManager:
             return None
 
         # Engineer features for this phase
+        imu_sample = self._imu_bridge.read_sample()
+
         context = {
             "rep_phase": rep_event.phase,
             "exercise_id": self._exercise_id,
-            "load_kg": 0.0,
-            "height_cm": 175.0,
-            "weight_kg": 75.0,
-            "ftr": 0.0,
+            "load_kg": self._current_load_kg,
         }
         features = self._feature_engineer.engineer(
-            frame_result.landmarks,
-            frame_result.angles,
-            context=context,
+            frame_result.landmarks, frame_result.angles,
+            imu_data=imu_sample, context=context, subject=self._subject,
         )
+
+        # Track bar velocity at phase boundaries for Velocity_Decel_Ratio
+        if rep_event.phase == 1:
+            self._phase1_velocity = imu_sample.get("v_bar_velocity", 0.0)
+        elif rep_event.phase == 3:
+            self._phase3_velocity = imu_sample.get("v_bar_velocity", 0.0)
 
         # Push into buffer
         self._sequence_buffer.push(rep_event.phase, features)
@@ -174,10 +216,21 @@ class SessionManager:
         if not self._sequence_buffer.is_ready():
             return None
 
-        # Run inference
-        sequence = self._sequence_buffer.get_sequence()
+        # Compute the real Velocity_Decel_Ratio now that phase1 and phase3
+        # velocities are both known (was a 1.0 placeholder during per-frame
+        # feature engineering — see feature_engineer._compute_engineered_features)
+        decel_ratio = 1.0
+        if self._phase1_velocity is not None and self._phase3_velocity is not None:
+            decel_ratio = self._phase3_velocity / (abs(self._phase1_velocity) + 1e-6)
+
+        sequence = self._sequence_buffer.get_model_sequence(
+            decel_ratio_idx=self._decel_ratio_idx,
+            decel_ratio_value=decel_ratio,
+        )
         result = self._lstm_runner.predict(sequence)
         self._sequence_buffer.reset()
+        self._phase1_velocity = None
+        self._phase3_velocity = None
 
         self._rep_count += 1
 

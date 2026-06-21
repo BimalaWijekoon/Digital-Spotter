@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     total_reps    INTEGER DEFAULT 0,
     good_reps     INTEGER DEFAULT 0,
     bad_reps      INTEGER DEFAULT 0,
-    notes         TEXT
+    notes         TEXT,
+    height_cm     REAL,
+    weight_kg     REAL,
+    ftr           REAL
 );
 
 -- ──────────────────────────────────────────────────────────────────

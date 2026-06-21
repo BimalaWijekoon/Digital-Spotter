@@ -36,10 +36,10 @@ class TestFullInference:
             "TRUNK": 14.0,
         }
 
-    def test_feature_engineer_returns_38_features(self):
+    def test_feature_engineer_returns_40_features(self):
         fe = FeatureEngineer()
         features = fe.engineer(self._make_landmarks(), self._make_angles())
-        assert features.shape == (38,)
+        assert features.shape == (40,)
         assert features.dtype == np.float32
 
     def test_feature_engineer_asymmetry_calculation(self):
@@ -63,12 +63,12 @@ class TestFullInference:
             buf.push(phase, features)
 
         assert buf.is_ready()
-        result = runner.predict(buf.get_sequence())
+        result = runner.predict(buf.get_model_sequence())
         assert result.label in ["Good Form", "Bad Form"]
 
     def test_inference_latency_under_25ms(self):
         runner = LSTMRunner()
         runner.load()
-        seq = np.random.randn(3, 38).astype(np.float32)
+        seq = np.random.randn(4, 40).astype(np.float32)
         result = runner.predict(seq)
         assert result.latency_ms < 25

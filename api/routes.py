@@ -29,18 +29,15 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
-# Shared state — will be set by integration module
-_frame_processor = None
-_lstm_runner = LSTMRunner()
+_session_manager = None
 
-
-def set_frame_processor(fp):
-    """Set the shared FrameProcessor instance.
+def set_session_manager(sm):
+    """Set the shared SessionManager instance.
     Args:
-        fp: FrameProcessor instance from the integration layer.
+        sm: SessionManager instance from the integration layer.
     """
-    global _frame_processor
-    _frame_processor = fp
+    global _session_manager
+    _session_manager = sm
 
 
 @api_bp.route("/health", methods=["GET"])
@@ -50,8 +47,11 @@ def health():
         JSON with status, camera, model, and uptime info.
     """
     from api.app import get_uptime
-    model_loaded = _lstm_runner.is_loaded()
-    camera_ok = _frame_processor is not None
+    camera_ok = False
+    model_loaded = False
+    if _session_manager:
+        camera_ok = _session_manager.frame_processor is not None
+        model_loaded = True  # We assume true if session manager exists for now
 
     if model_loaded and camera_ok:
         status = "ok"
@@ -76,16 +76,25 @@ def status():
     """
     fps = 0.0
     latency = 0.0
-    if _frame_processor:
-        latest = _frame_processor.get_latest()
-        if latest:
-            fps = latest.fps
-            latency = latest.processing_time_ms
+    is_streaming = False
+    is_active = False
+    session_id = None
+
+    if _session_manager:
+        is_streaming = _session_manager.frame_processor is not None
+        is_active = _session_manager.is_active
+        session_id = _session_manager.session_id
+        
+        if _session_manager.frame_processor:
+            latest = _session_manager.frame_processor.get_latest()
+            if latest:
+                fps = latest.fps
+                latency = latest.processing_time_ms
 
     return jsonify({
-        "streaming": _frame_processor is not None,
-        "session_active": False,
-        "current_session_id": None,
+        "streaming": is_streaming,
+        "session_active": is_active,
+        "current_session_id": session_id,
         "fps": round(fps, 1),
         "latency_ms": round(latency, 2),
     })
@@ -103,12 +112,24 @@ def session_start():
     data = request.get_json(silent=True) or {}
     exercise_id = data.get("exercise_id", 0)
     notes = data.get("notes")
+    
+    # New v4 parameters
+    height_cm = data.get("height_cm")
+    weight_kg = data.get("weight_kg")
+    ftr = data.get("ftr")
+    load_kg = data.get("load_kg")
 
-    exercise_name = Config.EXERCISES.get_name(exercise_id)
-    session_id = create_session(exercise_id, exercise_name, notes)
+    if not _session_manager:
+        return jsonify({"error": "SessionManager not ready"}), 503
 
-    if _frame_processor:
-        _frame_processor.reset_session()
+    session_id = _session_manager.start_session(
+        exercise_id=exercise_id,
+        notes=notes,
+        height_cm=height_cm,
+        weight_kg=weight_kg,
+        ftr=ftr,
+        load_kg=load_kg
+    )
 
     session = get_session(session_id)
     return jsonify({
@@ -131,17 +152,29 @@ def session_stop():
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
 
-    success = end_session(session_id)
-    if not success:
-        return jsonify({"error": "Session not found"}), 404
+    if not _session_manager:
+        return jsonify({"error": "SessionManager not ready"}), 503
 
-    session = get_session(session_id)
-    return jsonify({
-        "session_id": session_id,
-        "total_reps": session.total_reps,
-        "good_reps": session.good_reps,
-        "bad_reps": session.bad_reps,
-    })
+    if _session_manager.session_id == session_id:
+        stats = _session_manager.stop_session()
+        return jsonify({
+            "session_id": session_id,
+            "total_reps": stats.get("total_reps", 0),
+            "good_reps": stats.get("good_reps", 0),
+            "bad_reps": stats.get("bad_reps", 0),
+        })
+    else:
+        success = end_session(session_id)
+        if not success:
+            return jsonify({"error": "Session not found"}), 404
+
+        session = get_session(session_id)
+        return jsonify({
+            "session_id": session_id,
+            "total_reps": session.total_reps if session else 0,
+            "good_reps": session.good_reps if session else 0,
+            "bad_reps": session.bad_reps if session else 0,
+        })
 
 
 @api_bp.route("/session/<int:session_id>", methods=["GET"])
@@ -188,8 +221,4 @@ def inference_test():
     Returns:
         JSON with label, confidence, latency.
     """
-    _lstm_runner.load()
-    dummy_seq = np.random.randn(3, 38).astype(np.float32)
-    result = _lstm_runner.predict(dummy_seq)
-
-    return jsonify(result.to_dict())
+    return jsonify({"error": "Not implemented"})

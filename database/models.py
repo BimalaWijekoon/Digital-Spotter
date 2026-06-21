@@ -25,6 +25,9 @@ class Session:
         good_reps: Reps classified as good form.
         bad_reps: Reps classified as bad form.
         notes: Optional user notes.
+        height_cm: Subject height in cm (v4 pipeline).
+        weight_kg: Subject weight in kg (v4 pipeline).
+        ftr: Femur-to-tibia ratio (v4 pipeline).
     """
     id: int = 0
     exercise_id: int = 0
@@ -35,6 +38,9 @@ class Session:
     good_reps: int = 0
     bad_reps: int = 0
     notes: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    ftr: Optional[float] = None
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization.
@@ -52,6 +58,9 @@ class Session:
             "good_reps": self.good_reps,
             "bad_reps": self.bad_reps,
             "notes": self.notes,
+            "height_cm": self.height_cm,
+            "weight_kg": self.weight_kg,
+            "ftr": self.ftr,
         }
 
     @classmethod
@@ -74,6 +83,9 @@ class Session:
             good_reps=row["good_reps"],
             bad_reps=row["bad_reps"],
             notes=row["notes"],
+            height_cm=row["height_cm"] if "height_cm" in row.keys() else None,
+            weight_kg=row["weight_kg"] if "weight_kg" in row.keys() else None,
+            ftr=row["ftr"] if "ftr" in row.keys() else None,
         )
 
 
