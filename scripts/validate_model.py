@@ -37,16 +37,20 @@ def validate():
         print("    Place model_quantized.tflite in models/ directory.")
         return
 
-    # Try loading
+    # Try loading — ai_edge_litert first (Python 3.12+), then legacy fallbacks
     try:
-        import tflite_runtime.interpreter as tflite
+        import ai_edge_litert.interpreter as tflite
     except ImportError:
         try:
-            import tensorflow as tf
-            tflite = tf.lite
+            import tflite_runtime.interpreter as tflite
         except ImportError:
-            print("\n[!] No TFLite runtime available.")
-            return
+            try:
+                import tensorflow as tf
+                tflite = tf.lite
+            except ImportError:
+                print("\n[!] No TFLite runtime available.")
+                print("    Install with: pip install ai-edge-litert")
+                return
 
     interpreter = tflite.Interpreter(model_path=str(model_path))
     interpreter.allocate_tensors()

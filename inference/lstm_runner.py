@@ -22,20 +22,25 @@ from inference.preprocessor import Preprocessor
 
 logger = logging.getLogger(__name__)
 
-# Attempt TFLite import
+# Attempt TFLite import — try ai_edge_litert first (Python 3.12+ / modern Pi),
+# fall back to legacy tflite_runtime, then full tensorflow.
 try:
-    import tflite_runtime.interpreter as tflite
+    import ai_edge_litert.interpreter as tflite
     TFLITE_AVAILABLE = True
 except ImportError:
     try:
-        import tensorflow as tf
-        tflite = tf.lite
+        import tflite_runtime.interpreter as tflite
         TFLITE_AVAILABLE = True
     except ImportError:
-        TFLITE_AVAILABLE = False
-        logger.warning(
-            "TFLite runtime not available — using mock inference"
-        )
+        try:
+            import tensorflow as tf
+            tflite = tf.lite
+            TFLITE_AVAILABLE = True
+        except ImportError:
+            TFLITE_AVAILABLE = False
+            logger.warning(
+                "TFLite runtime not available — using mock inference"
+            )
 
 
 @dataclass
