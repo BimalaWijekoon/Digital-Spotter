@@ -217,8 +217,22 @@ def sessions_list():
 
 @api_bp.route("/inference/test", methods=["POST"])
 def inference_test():
-    """Test inference with dummy data — for development.
+    """Run inference on a (4,40) dummy sequence — for development/validation.
+
+    Exercises the full LSTMRunner.predict() path including TFLite interpreter
+    invocation (or mock fallback). Useful for verifying the model artifact
+    loads and runs without needing a camera or live session.
+
     Returns:
-        JSON with label, confidence, latency.
+        JSON with label, confidence, latency_ms, and is_mock flag.
     """
-    return jsonify({"error": "Not implemented"})
+    runner = LSTMRunner()
+    runner.load()
+    dummy_sequence = np.zeros((4, 40), dtype=np.float32)
+    result = runner.predict(dummy_sequence)
+    return jsonify({
+        "label": result.label,
+        "confidence": round(result.confidence, 4),
+        "latency_ms": round(result.latency_ms, 2),
+        "is_mock": result.is_mock,
+    })

@@ -1,10 +1,10 @@
 """
 inference/lstm_runner.py
-Purpose: Load TFLite model and run inference on (3, 38) sequence.
+Purpose: Load TFLite model and run inference on (4, 40) sequence.
          Falls back to mock predictions if model file unavailable.
 Author: bimalawijekoon
-Version: 1.0.0
-Last Modified: 2026-06-15
+Version: 2.0.0
+Last Modified: 2026-06-22
 """
 
 import logging
@@ -47,11 +47,13 @@ class InferenceResult:
         confidence: Sigmoid output 0.0-1.0.
         is_bad_form: True if confidence >= threshold.
         latency_ms: Inference time in milliseconds.
+        is_mock: True if no real TFLite model was loaded.
     """
     label: str = "Good Form"
     confidence: float = 0.5
     is_bad_form: bool = False
     latency_ms: float = 0.0
+    is_mock: bool = False
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization.
@@ -64,6 +66,7 @@ class InferenceResult:
             "confidence": round(self.confidence, 4),
             "is_bad_form": self.is_bad_form,
             "latency_ms": round(self.latency_ms, 2),
+            "is_mock": self.is_mock,
         }
 
 
@@ -200,6 +203,7 @@ class LSTMRunner:
                 confidence=confidence,
                 is_bad_form=is_bad,
                 latency_ms=elapsed_ms,
+                is_mock=False,
             )
 
         except Exception as e:
@@ -263,4 +267,5 @@ class LSTMRunner:
             confidence=float(confidence),
             is_bad_form=is_bad,
             latency_ms=elapsed_ms,
+            is_mock=True,
         )

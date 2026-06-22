@@ -3,7 +3,7 @@ tests/test_04_api/test_endpoints.py
 Purpose: Test REST API endpoints via Flask test client.
 Author: bimalawijekoon
 Version: 1.0.0
-Last Modified: 2026-06-15
+Last Modified: 2026-06-22
 """
 import sys
 import json
@@ -15,22 +15,62 @@ from config.config import Config
 from database.db import close_connection
 
 
+class _MockSessionManager:
+    """Minimal stub that satisfies routes.py's SessionManager API."""
+
+    def __init__(self):
+        self._session_id = None
+        self.is_active = False
+        self.frame_processor = None  # health endpoint checks this
+
+    @property
+    def session_id(self):
+        return self._session_id
+
+    def start_session(self, exercise_id=0, notes=None, height_cm=None,
+                       weight_kg=None, ftr=None, load_kg=None):
+        from database.queries import create_session
+        name = Config.EXERCISES.get_name(exercise_id)
+        self._session_id = create_session(
+            exercise_id, name, notes,
+            height_cm=height_cm or 175.0,
+            weight_kg=weight_kg or 75.0,
+            ftr=ftr or 1.20,
+        )
+        self.is_active = True
+        return self._session_id
+
+    def stop_session(self):
+        from database.queries import end_session, get_session_stats
+        end_session(self._session_id)
+        stats = get_session_stats(self._session_id)
+        self._session_id = None
+        self.is_active = False
+        return stats
+
+
 @pytest.fixture
 def client(tmp_path):
-    """Create Flask test client with temp database."""
+    """Create Flask test client with temp database and stub SessionManager."""
     original_db = Config.PATHS.DATABASE
     Config.PATHS.DATABASE = tmp_path / "test_api.db"
     close_connection()
 
     from api.app import create_app
+    from api.routes import set_session_manager
     app = create_app()
     app.config["TESTING"] = True
+
+    mock_sm = _MockSessionManager()
+    with app.app_context():
+        set_session_manager(mock_sm)
+
     with app.test_client() as c:
         yield c
 
     close_connection()
+    set_session_manager(None)
     Config.PATHS.DATABASE = original_db
-
 
 class TestHealthEndpoint:
     def test_health_returns_200(self, client):
