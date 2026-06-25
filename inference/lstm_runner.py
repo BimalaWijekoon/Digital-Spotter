@@ -22,17 +22,17 @@ from inference.preprocessor import Preprocessor
 
 logger = logging.getLogger(__name__)
 
-# TFLite import — full tensorflow package first (includes Flex delegate,
-# required for SELECT_TF_OPS models like BiLSTM+MHA with Bidirectional LSTM).
-# Falls back to ai_edge_litert only if tensorflow is not installed, but that
-# fallback will fail at allocate_tensors() for SELECT_TF_OPS models.
+# TFLite import — ai_edge_litert first: ships with Flex delegate on this Pi
+# and correctly handles SELECT_TF_OPS models (FlexTensorListReserve from
+# Bidirectional LSTM). tf.lite.Interpreter from the TF 2.16.2 AWS aarch64
+# build fails on FULLY_CONNECTED version 12, so it is the fallback only.
 try:
-    import tensorflow as tf
-    tflite = tf.lite
+    import ai_edge_litert.interpreter as tflite
     TFLITE_AVAILABLE = True
 except ImportError:
     try:
-        import ai_edge_litert.interpreter as tflite
+        import tensorflow as tf
+        tflite = tf.lite
         TFLITE_AVAILABLE = True
     except ImportError:
         try:

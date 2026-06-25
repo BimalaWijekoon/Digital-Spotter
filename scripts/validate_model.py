@@ -20,11 +20,10 @@ from config.config import Config
 def load_interpreter(model_path):
     """Load a TFLite interpreter with Flex delegate support.
 
-    Tries tf.lite.Interpreter first (full tensorflow package — ships with
-    the Flex delegate built in, required for SELECT_TF_OPS models like
-    the BiLSTM+MHA architecture used here). Falls back to ai_edge_litert
-    only if tensorflow is not installed, but warns that SELECT_TF_OPS
-    models will fail in that case.
+    On this Pi (TF 2.16.2 AWS aarch64 build), tf.lite.Interpreter fails
+    on FULLY_CONNECTED version 12 — the AWS-compiled TFLite kernel table
+    lags behind the op version the notebook exported. ai_edge_litert ships
+    its own Flex delegate and handles SELECT_TF_OPS models correctly.
 
     Args:
         model_path: Path-like, location of the .tflite file.
@@ -33,43 +32,40 @@ def load_interpreter(model_path):
         Allocated interpreter instance.
 
     Raises:
-        RuntimeError: If no runtime is available.
+        RuntimeError: If no runtime can load the model.
     """
     model_path_str = str(model_path)
 
-    # First choice: full tensorflow — Flex delegate included, always works
-    # for SELECT_TF_OPS models (Bidirectional LSTM forces this requirement).
+    # First choice: ai_edge_litert — ships with Flex delegate on this Pi,
+    # handles SELECT_TF_OPS (FlexTensorListReserve) correctly.
+    try:
+        import ai_edge_litert.interpreter as litert
+        interp = litert.Interpreter(model_path=model_path_str)
+        interp.allocate_tensors()
+        print("  Runtime: ai_edge_litert (Flex delegate active)")
+        return interp
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"  ai_edge_litert failed: {e}")
+
+    # Second choice: full tensorflow tf.lite.Interpreter.
+    # Note: on TF 2.16.2 AWS aarch64 this fails with FULLY_CONNECTED
+    # version 12 error — try anyway in case TF version changes.
     try:
         import tensorflow as tf
         interp = tf.lite.Interpreter(model_path=model_path_str)
         interp.allocate_tensors()
-        print("  Runtime: tf.lite.Interpreter (tensorflow package, Flex delegate built-in)")
+        print("  Runtime: tf.lite.Interpreter (tensorflow package)")
         return interp
     except ImportError:
         pass
     except Exception as e:
         print(f"  tf.lite.Interpreter failed: {e}")
 
-    # Second choice: ai_edge_litert — works for pure-builtin models only.
-    # Will fail at allocate_tensors() for SELECT_TF_OPS models.
-    try:
-        import ai_edge_litert.interpreter as litert
-        interp = litert.Interpreter(model_path=model_path_str)
-        interp.allocate_tensors()
-        print("  Runtime: ai_edge_litert (no Flex delegate — builtins only)")
-        return interp
-    except ImportError:
-        pass
-    except Exception as e:
-        print(f"  ai_edge_litert failed: {e}")
-        print("  ⚠️  Model requires SELECT_TF_OPS (Flex delegate).")
-        print("     ai_edge_litert does not include Flex delegate support.")
-        print("     Install full tensorflow: pip install tensorflow==2.16.2")
-        raise
-
     raise RuntimeError(
-        "No TFLite runtime available. "
-        "Install tensorflow: pip install tensorflow==2.16.2"
+        "No TFLite runtime could load the model.\n"
+        "Install ai-edge-litert: pip install ai-edge-litert"
     )
 
 
