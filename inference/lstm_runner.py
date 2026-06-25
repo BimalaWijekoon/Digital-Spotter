@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # supported" even though the Flex delegate is technically available.
 try:
     import tensorflow as _tf_preload  # noqa: F401 — side-effect only
-except ImportError:
+except Exception:
     pass
 
 # TFLite runtime — ai_edge_litert has the correct op kernel table for this
@@ -153,7 +153,7 @@ class LSTMRunner:
             # at module import time.
             try:
                 import tensorflow as _tf  # noqa: F401
-            except ImportError:
+            except Exception:
                 pass
 
             self._interpreter = tflite.Interpreter(

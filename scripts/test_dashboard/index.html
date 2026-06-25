@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Spotter — v4 Test Dashboard</title>
+    <meta name="description" content="Real-time exercise form prediction test dashboard for Digital Spotter v4 BiLSTM+MHA model with GPIO buzzer feedback.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --bg-card: rgba(17, 24, 39, 0.85);
+            --text-primary: #f0f4ff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(59, 130, 246, 0.4);
+            --glass: rgba(255, 255, 255, 0.03);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 90%, rgba(6, 182, 212, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ── Header ────────────────────────────────── */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+            padding: 32px 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow);
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .header-sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; }
+
+        .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+        .badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            background: var(--glass);
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+        .badge.live { border-color: var(--accent-green); color: var(--accent-green); }
+        .badge.warn { border-color: var(--accent-amber); color: var(--accent-amber); }
+        .badge.off  { border-color: var(--accent-red); color: var(--accent-red); }
+
+        /* ── Layout ────────────────────────────────── */
+        .grid-main {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 1200px) {
+            .grid-main { grid-template-columns: 1fr; }
+        }
+
+        .left-col { display: flex; flex-direction: column; gap: 20px; }
+
+        /* ── Card ──────────────────────────────────── */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow);
+        }
+
+        .card-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 18px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-primary);
+        }
+
+        .card-title .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            box-shadow: 0 0 8px var(--accent-blue);
+        }
+
+        /* ── Inputs ────────────────────────────────── */
+        .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .setup-box {
+            background: var(--bg-tertiary);
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .input-label {
+            display: block;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .input-item { margin-bottom: 10px; }
+        .input-item span {
+            display: block;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 3px;
+        }
+
+        input[type="number"], select {
+            width: 100%;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            transition: var(--transition);
+            outline: none;
+        }
+
+        input[type="number"]:focus, select:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+
+        /* ── Phase tabs ────────────────────────────── */
+        .phase-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-primary);
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            margin-bottom: 18px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 12px;
+            transition: var(--transition);
+            font-family: 'Inter', sans-serif;
+        }
+        .tab-btn:hover { color: var(--text-primary); background: var(--glass); }
+        .tab-btn.active {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .phase-content { display: none; animation: fadeSlide 0.3s ease; }
+        .phase-content.active { display: block; }
+
+        @keyframes fadeSlide {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── Feature categories ────────────────────── */
+        .feat-cat {
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            border-left: 3px solid var(--border);
+        }
+        .feat-cat.vision   { border-left-color: var(--accent-purple); }
+        .feat-cat.angles   { border-left-color: var(--accent-green); }
+        .feat-cat.imu      { border-left-color: var(--accent-blue); }
+        .feat-cat.perf     { border-left-color: var(--accent-amber); }
+        .feat-cat.eng      { border-left-color: var(--accent-cyan); }
+
+        .cat-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 10px;
+        }
+
+        .joint-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .input-row  { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+
+        /* ── Predict button ────────────────────────── */
+        .action-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            text-align: center;
+            backdrop-filter: blur(20px);
+        }
+
+        .btn-predict {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: 'Inter', sans-serif;
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .btn-predict:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.4);
+        }
+        .btn-predict:disabled {
+            background: var(--bg-tertiary);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-row { display: flex; gap: 10px; margin-bottom: 16px; }
+
+        .btn-preset {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--glass);
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: 'Inter', sans-serif;
+        }
+        .btn-preset.good { border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green); }
+        .btn-preset.good:hover { background: rgba(16, 185, 129, 0.1); }
+        .btn-preset.bad  { border-color: rgba(239, 68, 68, 0.3); color: var(--accent-red); }
+        .btn-preset.bad:hover  { background: rgba(239, 68, 68, 0.1); }
+
+        .btn-buzzer {
+            width: 100%;
+            padding: 10px;
+            margin-top: 12px;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.05);
+            color: var(--accent-amber);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: 'Inter', sans-serif;
+        }
+        .btn-buzzer:hover { background: rgba(245, 158, 11, 0.15); }
+
+        /* ── Results ───────────────────────────────── */
+        .results-panel { display: none; margin-top: 24px; animation: fadeSlide 0.5s ease; }
+        .results-panel.active { display: block; }
+
+        .result-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .result-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--text-muted);
+        }
+        .result-card.good::before { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
+        .result-card.bad::before  { background: linear-gradient(90deg, var(--accent-red), var(--accent-amber)); }
+
+        .result-model-name {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .result-label {
+            font-size: 32px;
+            font-weight: 800;
+            margin: 8px 0;
+        }
+        .result-label.good { color: var(--accent-green); }
+        .result-label.bad  { color: var(--accent-red); }
+
+        .prob-bar-wrap {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            margin: 14px 0 8px;
+            overflow: hidden;
+        }
+        .prob-bar {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 0%;
+        }
+        .prob-bar.good { background: var(--accent-green); }
+        .prob-bar.bad  { background: var(--accent-red); }
+
+        .prob-text {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .buzzer-indicator {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            display: none;
+        }
+        .buzzer-indicator.fired {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--accent-red);
+            animation: buzzerPulse 0.5s ease 3;
+        }
+        .buzzer-indicator.silent {
+            display: block;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        @keyframes buzzerPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .latency-info {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            background: var(--bg-primary);
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-top: 16px;
+            text-align: left;
+        }
+
+        .error-msg {
+            color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.08);
+            padding: 14px;
+            border-radius: 10px;
+            margin-top: 16px;
+            display: none;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            font-size: 13px;
+        }
+        .error-msg.active { display: block; }
+
+        .loader {
+            display: none;
+            width: 18px; height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .threshold-line {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div class="logo">DIGITAL SPOTTER — TEST DASHBOARD</div>
+        <div class="header-sub">v4 BiLSTM+MHA Model · 40 Features × 4 Timesteps · GPIO Buzzer Feedback</div>
+        <div class="badges">
+            <span class="badge" id="badgeApi">API: Checking…</span>
+            <span class="badge" id="badgeModel">Model: —</span>
+            <span class="badge" id="badgeBuzzer">Buzzer: —</span>
+            <span class="badge" id="badgeRgb">RGB LED: —</span>
+            <span class="badge">Threshold: 0.359</span>
+        </div>
+    </div>
+
+    <div class="grid-main">
+
+        <!-- ─── Left Column ─────────────────────── -->
+        <div class="left-col">
+
+            <!-- Setup card -->
+            <div class="card">
+                <div class="card-title"><span class="dot"></span>1. Subject & Session</div>
+                <div class="setup-grid">
+                    <div class="setup-box">
+                        <label class="input-label">Subject</label>
+                        <div class="input-item">
+                            <span>Height (cm)</span>
+                            <input type="number" id="height_cm" value="176.0" step="0.1">
+                        </div>
+                        <div class="input-item">
+                            <span>Weight (kg)</span>
+                            <input type="number" id="weight_kg" value="78.0" step="0.1">
+                        </div>
+                        <div class="input-item">
+                            <span>Femur/Tibia Ratio</span>
+                            <input type="number" id="femur_tibia_ratio" value="1.17" step="0.01">
+                        </div>
+                    </div>
+                    <div class="setup-box">
+                        <label class="input-label">Session</label>
+                        <div class="input-item">
+                            <span>Exercise</span>
+                            <select id="exercise_id">
+                                <option value="0">Squat (0)</option>
+                                <option value="1" selected>Deadlift (1)</option>
+                            </select>
+                        </div>
+                        <div class="input-item">
+                            <span>Load (kg)</span>
+                            <input type="number" id="load_kg" value="95.0" step="0.5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action panel -->
+            <div class="action-panel">
+                <div class="btn-row">
+                    <button class="btn-preset good" onclick="loadGoodPreset()">🟢 Good Form</button>
+                    <button class="btn-preset bad" onclick="loadBadPreset()">🔴 Bad Form</button>
+                </div>
+
+                <button class="btn-predict" id="predictBtn" onclick="runPrediction()">
+                    <span>⚡ Run v4 Inference</span>
+                    <div class="loader" id="loader"></div>
+                </button>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button class="btn-buzzer" onclick="testBuzzer()">🔔 Test Buzzer</button>
+                    <button class="btn-buzzer" style="border-color: rgba(6, 182, 212, 0.3); color: var(--accent-cyan); background: rgba(6, 182, 212, 0.05);" onclick="testRgb()">💡 Test RGB LED</button>
+                </div>
+
+                <div id="errorMsg" class="error-msg"></div>
+
+                <!-- Results -->
+                <div class="results-panel" id="resultsPanel">
+                    <div class="result-card" id="resultCard">
+                        <div class="result-model-name">BiLSTM + Multi-Head Attention</div>
+                        <div id="resultLabel" class="result-label">—</div>
+                        <div class="prob-bar-wrap">
+                            <div id="probBar" class="prob-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="prob-text">
+                            <span>Good: <span id="probGood">0</span>%</span>
+                            <span>Bad: <span id="probBad">0</span>%</span>
+                        </div>
+                        <div class="threshold-line">Decision threshold: <span id="threshVal">0.359</span></div>
+                    </div>
+
+                    <div id="buzzerIndicator" class="buzzer-indicator"></div>
+
+                    <div class="latency-info" id="latencyInfo">
+                        Latency: — ms
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Right Column (Phase Data) ───────── -->
+        <div class="card">
+            <div class="card-title"><span class="dot" style="background: var(--accent-purple);box-shadow:0 0 8px var(--accent-purple)"></span>2. Phase Data (3 Timesteps + Delta)</div>
+
+            <div class="phase-tabs">
+                <button class="tab-btn active" onclick="switchPhase(1)">Phase 1 · Descent</button>
+                <button class="tab-btn" onclick="switchPhase(2)">Phase 2 · Bottom</button>
+                <button class="tab-btn" onclick="switchPhase(3)">Phase 3 · Ascent</button>
+            </div>
+
+            <!-- Phase 1 -->
+            <div id="phase1" class="phase-content active">
+                <div class="feat-cat vision">
+                    <div class="cat-title">📷 Vision Coordinates (X, Y)</div>
+                    <div class="joint-grid" id="vision-1"></div>
+                </div>
+                <div class="feat-cat angles">
+                    <div class="cat-title">📐 Trunk & Asymmetry</div>
+                    <div class="input-row" id="angles-1"></div>
+                </div>
+                <div class="feat-cat imu">
+                    <div class="cat-title">⌚ IMU Sensor</div>
+                    <div class="input-row" id="imu-1"></div>
+                </div>
+                <div class="feat-cat perf">
+                    <div class="cat-title">⚡ Bar Performance</div>
+                    <div class="input-row" id="perf-1"></div>
+                </div>
+                <div class="feat-cat eng">
+                    <div class="cat-title">🧮 Engineered (auto-computed, override optional)</div>
+                    <div class="input-row" id="eng-1"></div>
+                </div>
+            </div>
+
+            <!-- Phase 2 -->
+            <div id="phase2" class="phase-content">
+                <div class="feat-cat vision"><div class="cat-title">📷 Vision Coordinates</div><div class="joint-grid" id="vision-2"></div></div>
+                <div class="feat-cat angles"><div class="cat-title">📐 Trunk & Asymmetry</div><div class="input-row" id="angles-2"></div></div>
+                <div class="feat-cat imu"><div class="cat-title">⌚ IMU Sensor</div><div class="input-row" id="imu-2"></div></div>
+                <div class="feat-cat perf"><div class="cat-title">⚡ Bar Performance</div><div class="input-row" id="perf-2"></div></div>
+                <div class="feat-cat eng"><div class="cat-title">🧮 Engineered</div><div class="input-row" id="eng-2"></div></div>
+            </div>
+
+            <!-- Phase 3 -->
+            <div id="phase3" class="phase-content">
+                <div class="feat-cat vision"><div class="cat-title">📷 Vision Coordinates</div><div class="joint-grid" id="vision-3"></div></div>
+                <div class="feat-cat angles"><div class="cat-title">📐 Trunk & Asymmetry</div><div class="input-row" id="angles-3"></div></div>
+                <div class="feat-cat imu"><div class="cat-title">⌚ IMU Sensor</div><div class="input-row" id="imu-3"></div></div>
+                <div class="feat-cat perf"><div class="cat-title">⚡ Bar Performance</div><div class="input-row" id="perf-3"></div></div>
+                <div class="feat-cat eng"><div class="cat-title">🧮 Engineered</div><div class="input-row" id="eng-3"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Auto-detect API URL — same host, port 8000
+    const API_URL = window.location.origin;
+
+    // ═══════════════════════════════════════════════
+    // Dynamic grid generation
+    // ═══════════════════════════════════════════════
+
+    const joints = ['L_Shoulder','R_Shoulder','L_Hip','R_Hip','L_Knee','R_Knee','L_Ankle','R_Ankle'];
+
+    const angleFields = [
+        { label: 'Trunk Inclination', field: 'angle_trunk_inclination' },
+        { label: 'Hip Asym |L-R|',    field: 'hip_flexion_asymmetry' },
+        { label: 'Knee Asym |L-R|',   field: 'knee_flexion_asymmetry' },
+        { label: 'Ankle Asym |L-R|',  field: 'ankle_dorsiflexion_asymmetry' },
+    ];
+
+    const imuFields = [
+        { label: 'Acc X',  field: 'imu_acc_x' },
+        { label: 'Acc Y',  field: 'imu_acc_y' },
+        { label: 'Acc Z',  field: 'imu_acc_z' },
+        { label: 'Gyro X', field: 'imu_gyro_x' },
+        { label: 'Gyro Y', field: 'imu_gyro_y' },
+        { label: 'Gyro Z', field: 'imu_gyro_z' },
+    ];
+
+    const perfFields = [
+        { label: 'Bar Velocity (Z)',  field: 'v_bar_velocity_vertical' },
+        { label: 'Bar Power (W)',     field: 'p_bar_power_watts' },
+        { label: 'Jerk / Smoothness', field: 'smoothness_jerk' },
+    ];
+
+    const engFields = [
+        { label: 'IMU Acc Mag',      field: 'imu_acc_magnitude', placeholder: 'auto' },
+        { label: 'Knee-Hip Coup L',  field: 'knee_hip_coupling_l', placeholder: 'auto' },
+        { label: 'Knee-Hip Coup R',  field: 'knee_hip_coupling_r', placeholder: 'auto' },
+        { label: 'Vel Decel Ratio',  field: 'velocity_decel_ratio', placeholder: 'auto' },
+    ];
+
+    function makeInput(phase, field, step, val, placeholder) {
+        const ph = placeholder ? `placeholder="${placeholder}"` : '';
+        return `<div class="input-item">
+            <span>${field.replace(/_/g, ' ')}</span>
+            <input type="number" class="p${phase}" data-field="${field}" step="${step}" value="${val}" ${ph}>
+        </div>`;
+    }
+
+    for (let p = 1; p <= 3; p++) {
+        // Vision
+        const vg = document.getElementById(`vision-${p}`);
+        joints.forEach(j => {
+            const f = j.toLowerCase();
+            vg.innerHTML += makeInput(p, `vis_${f}_x`, '0.001', '0.0', '')
+                          + makeInput(p, `vis_${f}_y`, '0.001', '0.0', '');
+        });
+
+        // Angles
+        const ag = document.getElementById(`angles-${p}`);
+        angleFields.forEach(a => { ag.innerHTML += makeInput(p, a.field, '0.1', '0.0', ''); });
+
+        // IMU
+        const ig = document.getElementById(`imu-${p}`);
+        imuFields.forEach(i => { ig.innerHTML += makeInput(p, i.field, '0.01', '0.0', ''); });
+
+        // Performance
+        const pg = document.getElementById(`perf-${p}`);
+        perfFields.forEach(f => { pg.innerHTML += makeInput(p, f.field, '0.01', '0.0', ''); });
+
+        // Engineered
+        const eg = document.getElementById(`eng-${p}`);
+        engFields.forEach(e => { eg.innerHTML += makeInput(p, e.field, '0.01', '', e.placeholder || ''); });
+    }
+
+    // ═══════════════════════════════════════════════
+    // Tab switching
+    // ═══════════════════════════════════════════════
+
+    function switchPhase(n) {
+        document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === n - 1));
+        document.querySelectorAll('.phase-content').forEach((c, i) => c.classList.toggle('active', i === n - 1));
+    }
+
+    // ═══════════════════════════════════════════════
+    // Health check
+    // ═══════════════════════════════════════════════
+
+    window.addEventListener('load', async () => {
+        try {
+            const r = await fetch(`${API_URL}/health`);
+            const d = await r.json();
+
+            const api = document.getElementById('badgeApi');
+            api.textContent = `API: ${d.status === 'ready' ? 'Online' : 'Degraded'}`;
+            api.className = `badge ${d.status === 'ready' ? 'live' : 'warn'}`;
+
+            const mdl = document.getElementById('badgeModel');
+            mdl.textContent = `Model: ${d.model_mock ? 'Mock' : 'Real TFLite'}`;
+            mdl.className = `badge ${d.model_mock ? 'warn' : 'live'}`;
+
+            const buz = document.getElementById('badgeBuzzer');
+            buz.textContent = `Buzzer: ${d.buzzer_mock ? 'Mock' : 'GPIO ' + d.buzzer_pin}`;
+            buz.className = `badge ${d.buzzer_mock ? 'warn' : 'live'}`;
+
+            const rgb = document.getElementById('badgeRgb');
+            rgb.textContent = `RGB LED: ${d.rgb_mock ? 'Mock' : 'GPIO'}`;
+            rgb.className = `badge ${d.rgb_mock ? 'warn' : 'live'}`;
+
+            document.getElementById('threshVal').textContent = d.threshold;
+        } catch {
+            document.getElementById('badgeApi').textContent = 'API: Offline';
+            document.getElementById('badgeApi').className = 'badge off';
+        }
+
+        loadGoodPreset();
+    });
+
+    // ═══════════════════════════════════════════════
+    // Presets — v4 format (40 features)
+    // ═══════════════════════════════════════════════
+
+    function loadGoodPreset() {
+        document.getElementById('height_cm').value = 176.0;
+        document.getElementById('weight_kg').value = 78.0;
+        document.getElementById('exercise_id').value = "1";
+        document.getElementById('load_kg').value = 95.0;
+        document.getElementById('femur_tibia_ratio').value = 1.17;
+
+        const good = {
+            phase1: {
+                vis_l_shoulder_x: 0.308, vis_l_shoulder_y: 0.359,
+                vis_r_shoulder_x: 0.686, vis_r_shoulder_y: 0.359,
+                vis_l_hip_x: 0.321, vis_l_hip_y: 0.559,
+                vis_r_hip_x: 0.668, vis_r_hip_y: 0.559,
+                vis_l_knee_x: 0.330, vis_l_knee_y: 0.713,
+                vis_r_knee_x: 0.672, vis_r_knee_y: 0.713,
+                vis_l_ankle_x: 0.340, vis_l_ankle_y: 0.880,
+                vis_r_ankle_x: 0.660, vis_r_ankle_y: 0.880,
+                angle_trunk_inclination: 20.0,
+                hip_flexion_asymmetry: 1.5, knee_flexion_asymmetry: 1.2,
+                ankle_dorsiflexion_asymmetry: 0.8,
+                imu_acc_x: 0.12, imu_acc_y: 0.05, imu_acc_z: -9.81,
+                imu_gyro_x: 0.50, imu_gyro_y: 0.10, imu_gyro_z: 0.02,
+                v_bar_velocity_vertical: 0.0, p_bar_power_watts: 0.0, smoothness_jerk: 0.05,
+            },
+            phase2: {
+                vis_l_shoulder_x: 0.320, vis_l_shoulder_y: 0.450,
+                vis_r_shoulder_x: 0.680, vis_r_shoulder_y: 0.450,
+                vis_l_hip_x: 0.335, vis_l_hip_y: 0.650,
+                vis_r_hip_x: 0.665, vis_r_hip_y: 0.650,
+                vis_l_knee_x: 0.340, vis_l_knee_y: 0.850,
+                vis_r_knee_x: 0.660, vis_r_knee_y: 0.850,
+                vis_l_ankle_x: 0.345, vis_l_ankle_y: 0.900,
+                vis_r_ankle_x: 0.665, vis_r_ankle_y: 0.900,
+                angle_trunk_inclination: 35.0,
+                hip_flexion_asymmetry: 1.2, knee_flexion_asymmetry: 1.5,
+                ankle_dorsiflexion_asymmetry: 1.0,
+                imu_acc_x: 0.05, imu_acc_y: 0.04, imu_acc_z: -9.79,
+                imu_gyro_x: 1.45, imu_gyro_y: 0.35, imu_gyro_z: -0.05,
+                v_bar_velocity_vertical: 0.1, p_bar_power_watts: 50.0, smoothness_jerk: 0.10,
+            },
+            phase3: {
+                vis_l_shoulder_x: 0.315, vis_l_shoulder_y: 0.360,
+                vis_r_shoulder_x: 0.685, vis_r_shoulder_y: 0.360,
+                vis_l_hip_x: 0.325, vis_l_hip_y: 0.565,
+                vis_r_hip_x: 0.670, vis_r_hip_y: 0.565,
+                vis_l_knee_x: 0.335, vis_l_knee_y: 0.720,
+                vis_r_knee_x: 0.665, vis_r_knee_y: 0.720,
+                vis_l_ankle_x: 0.345, vis_l_ankle_y: 0.900,
+                vis_r_ankle_x: 0.665, vis_r_ankle_y: 0.900,
+                angle_trunk_inclination: 18.0,
+                hip_flexion_asymmetry: 0.9, knee_flexion_asymmetry: 0.9,
+                ankle_dorsiflexion_asymmetry: 0.7,
+                imu_acc_x: 0.085, imu_acc_y: 0.045, imu_acc_z: -9.800,
+                imu_gyro_x: 1.35, imu_gyro_y: 0.22, imu_gyro_z: -0.07,
+                v_bar_velocity_vertical: 0.50, p_bar_power_watts: 550.0, smoothness_jerk: 0.12,
+            }
+        };
+        fillPhases(good);
+        hideResults();
+    }
+
+    function loadBadPreset() {
+        document.getElementById('height_cm').value = 163.0;
+        document.getElementById('weight_kg').value = 60.0;
+        document.getElementById('exercise_id').value = "1";
+        document.getElementById('load_kg').value = 40.0;
+        document.getElementById('femur_tibia_ratio').value = 1.24;
+
+        const bad = {
+            phase1: {
+                vis_l_shoulder_x: 0.290, vis_l_shoulder_y: 0.350,
+                vis_r_shoulder_x: 0.710, vis_r_shoulder_y: 0.350,
+                vis_l_hip_x: 0.300, vis_l_hip_y: 0.540,
+                vis_r_hip_x: 0.700, vis_r_hip_y: 0.540,
+                vis_l_knee_x: 0.310, vis_l_knee_y: 0.700,
+                vis_r_knee_x: 0.690, vis_r_knee_y: 0.700,
+                vis_l_ankle_x: 0.330, vis_l_ankle_y: 0.880,
+                vis_r_ankle_x: 0.670, vis_r_ankle_y: 0.880,
+                angle_trunk_inclination: 45.0,
+                hip_flexion_asymmetry: 3.5, knee_flexion_asymmetry: 3.2,
+                ankle_dorsiflexion_asymmetry: 1.5,
+                imu_acc_x: 0.25, imu_acc_y: 0.24, imu_acc_z: -9.73,
+                imu_gyro_x: 1.60, imu_gyro_y: 1.98, imu_gyro_z: 0.22,
+                v_bar_velocity_vertical: 0.12, p_bar_power_watts: 46.9, smoothness_jerk: 0.21,
+            },
+            phase2: {
+                vis_l_shoulder_x: 0.270, vis_l_shoulder_y: 0.480,
+                vis_r_shoulder_x: 0.730, vis_r_shoulder_y: 0.480,
+                vis_l_hip_x: 0.280, vis_l_hip_y: 0.660,
+                vis_r_hip_x: 0.720, vis_r_hip_y: 0.660,
+                vis_l_knee_x: 0.290, vis_l_knee_y: 0.860,
+                vis_r_knee_x: 0.710, vis_r_knee_y: 0.860,
+                vis_l_ankle_x: 0.320, vis_l_ankle_y: 0.900,
+                vis_r_ankle_x: 0.680, vis_r_ankle_y: 0.900,
+                angle_trunk_inclination: 55.0,
+                hip_flexion_asymmetry: 4.0, knee_flexion_asymmetry: 4.5,
+                ankle_dorsiflexion_asymmetry: 2.0,
+                imu_acc_x: 0.42, imu_acc_y: 0.30, imu_acc_z: -9.50,
+                imu_gyro_x: 2.80, imu_gyro_y: 2.20, imu_gyro_z: 0.50,
+                v_bar_velocity_vertical: 0.08, p_bar_power_watts: 60.0, smoothness_jerk: 0.45,
+            },
+            phase3: {
+                vis_l_shoulder_x: 0.295, vis_l_shoulder_y: 0.365,
+                vis_r_shoulder_x: 0.705, vis_r_shoulder_y: 0.365,
+                vis_l_hip_x: 0.305, vis_l_hip_y: 0.555,
+                vis_r_hip_x: 0.695, vis_r_hip_y: 0.555,
+                vis_l_knee_x: 0.315, vis_l_knee_y: 0.715,
+                vis_r_knee_x: 0.685, vis_r_knee_y: 0.715,
+                vis_l_ankle_x: 0.325, vis_l_ankle_y: 0.895,
+                vis_r_ankle_x: 0.675, vis_r_ankle_y: 0.895,
+                angle_trunk_inclination: 42.0,
+                hip_flexion_asymmetry: 3.3, knee_flexion_asymmetry: 3.1,
+                ankle_dorsiflexion_asymmetry: 0.9,
+                imu_acc_x: 0.38, imu_acc_y: 0.28, imu_acc_z: -9.620,
+                imu_gyro_x: 2.6, imu_gyro_y: 1.9, imu_gyro_z: 0.4,
+                v_bar_velocity_vertical: 0.12, p_bar_power_watts: 95.0, smoothness_jerk: 0.70,
+            }
+        };
+        fillPhases(bad);
+        hideResults();
+    }
+
+    function fillPhases(data) {
+        for (let p = 1; p <= 3; p++) {
+            const pd = data[`phase${p}`];
+            document.querySelectorAll(`.p${p}`).forEach(inp => {
+                const f = inp.getAttribute('data-field');
+                if (pd[f] !== undefined) inp.value = pd[f];
+            });
+        }
+    }
+
+    function hideResults() {
+        document.getElementById('resultsPanel').classList.remove('active');
+        document.getElementById('errorMsg').classList.remove('active');
+    }
+
+    // ═══════════════════════════════════════════════
+    // Prediction
+    // ═══════════════════════════════════════════════
+
+    function gatherRequest() {
+        const subject = {
+            height_cm: parseFloat(document.getElementById('height_cm').value),
+            weight_kg: parseFloat(document.getElementById('weight_kg').value),
+            femur_tibia_ratio: parseFloat(document.getElementById('femur_tibia_ratio').value),
+        };
+        const session = {
+            exercise_id: parseInt(document.getElementById('exercise_id').value),
+            load_kg: parseFloat(document.getElementById('load_kg').value),
+        };
+
+        const phases = [];
+        for (let p = 1; p <= 3; p++) {
+            const obj = { rep_phase: p };
+            document.querySelectorAll(`.p${p}`).forEach(inp => {
+                const f = inp.getAttribute('data-field');
+                const v = inp.value.trim();
+                if (v !== '' && v !== 'auto') {
+                    obj[f] = parseFloat(v);
+                }
+                // If empty / 'auto', the field is omitted → server computes it
+            });
+            phases.push(obj);
+        }
+
+        return { subject, session, phases };
+    }
+
+    async function runPrediction() {
+        const btn = document.getElementById('predictBtn');
+        const loader = document.getElementById('loader');
+        const errEl = document.getElementById('errorMsg');
+        hideResults();
+        btn.disabled = true;
+        loader.style.display = 'block';
+
+        try {
+            const t0 = performance.now();
+            const resp = await fetch(`${API_URL}/predict`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(gatherRequest()),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'API error');
+            const clientMs = performance.now() - t0;
+            showResults(data, clientMs);
+        } catch (e) {
+            errEl.textContent = '❌ ' + e.message;
+            errEl.classList.add('active');
+        } finally {
+            btn.disabled = false;
+            loader.style.display = 'none';
+        }
+    }
+
+    function showResults(data, clientMs) {
+        const panel = document.getElementById('resultsPanel');
+        const card = document.getElementById('resultCard');
+        const isGood = data.label === 'Good Form';
+
+        card.className = `result-card ${isGood ? 'good' : 'bad'}`;
+
+        const lbl = document.getElementById('resultLabel');
+        lbl.textContent = data.label;
+        lbl.className = `result-label ${isGood ? 'good' : 'bad'}`;
+
+        document.getElementById('probGood').textContent = data.probability.good_form;
+        document.getElementById('probBad').textContent = data.probability.bad_form;
+
+        const bar = document.getElementById('probBar');
+        bar.className = `prob-bar ${isGood ? 'good' : 'bad'}`;
+        const pct = isGood ? data.probability.good_form : data.probability.bad_form;
+        setTimeout(() => { bar.style.width = pct + '%'; }, 50);
+
+        // Buzzer indicator
+        const buz = document.getElementById('buzzerIndicator');
+        if (data.buzzer_fired) {
+            buz.className = 'buzzer-indicator fired';
+            buz.textContent = '🔔 BUZZER FIRED — Triple beep on GPIO ' + (data.buzzer_pin || 18);
+        } else {
+            buz.className = 'buzzer-indicator silent';
+            buz.textContent = '✓ No buzzer — form is good';
+        }
+
+        // Latency
+        document.getElementById('latencyInfo').textContent =
+            `Server: ${data.latency_ms}ms | Client RTT: ${Math.round(clientMs)}ms | Mock: ${data.is_mock} | Threshold: ${data.threshold}`;
+
+        panel.classList.add('active');
+    }
+
+    // ═══════════════════════════════════════════════
+    // Hardware tests
+    // ═══════════════════════════════════════════════
+
+    async function testBuzzer() {
+        try {
+            const r = await fetch(`${API_URL}/buzzer/test`, { method: 'POST' });
+            const d = await r.json();
+            alert(`Buzzer test: ${d.status} (mock=${d.is_mock}, pin=${d.pin})`);
+        } catch (e) {
+            alert('Buzzer test failed: ' + e.message);
+        }
+    }
+
+    async function testRgb() {
+        try {
+            const colors = ['red', 'green', 'blue', 'purple', 'white', 'off'];
+            // Just cycle through a random color for the test
+            const randomColor = colors[Math.floor(Math.random() * (colors.length - 1))]; // exclude 'off' from random selection
+            
+            const r = await fetch(`${API_URL}/rgb/test?color=${randomColor}`, { method: 'POST' });
+            const d = await r.json();
+            
+            setTimeout(async () => {
+                await fetch(`${API_URL}/rgb/test?color=off`, { method: 'POST' });
+            }, 1000);
+            
+            alert(`RGB test: Set to ${randomColor} for 1s (mock=${d.is_mock})`);
+        } catch (e) {
+            alert('RGB test failed: ' + e.message);
+        }
+    }
+</script>
+</body>
+</html>

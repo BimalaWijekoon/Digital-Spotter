@@ -140,6 +140,23 @@ class _MQTT:
     ENABLED = os.getenv("DS_MQTT_ENABLED", "false").lower() == "true"
 
 
+class _Buzzer:
+    """Active buzzer GPIO configuration."""
+    GPIO_PIN = int(os.getenv("DS_BUZZER_PIN", "18"))
+    ENABLED = os.getenv("DS_BUZZER_ENABLED", "true").lower() == "true"
+    # Triple rapid beep: [on, off, on, off, on] in seconds
+    BAD_FORM_PATTERN = [0.1, 0.08, 0.1, 0.08, 0.1]
+
+
+class _RgbLed:
+    """RGB 5050 SMD LED GPIO configuration."""
+    PIN_R = int(os.getenv("DS_RGB_PIN_R", "17"))
+    PIN_G = int(os.getenv("DS_RGB_PIN_G", "27"))
+    PIN_B = int(os.getenv("DS_RGB_PIN_B", "22"))
+    ENABLED = os.getenv("DS_RGB_ENABLED", "true").lower() == "true"
+    COMMON_ANODE = os.getenv("DS_RGB_COMMON_ANODE", "false").lower() == "true"
+
+
 class _Logging:
     """Application logging configuration."""
     LEVEL = os.getenv("DS_LOG_LEVEL", "INFO")
@@ -169,4 +186,6 @@ class Config:
     EXERCISES = _Exercises()
     IMU = _IMU()
     MQTT = _MQTT()
+    BUZZER = _Buzzer()
+    RGB_LED = _RgbLed()
     LOGGING = _Logging()
