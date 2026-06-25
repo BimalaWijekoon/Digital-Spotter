@@ -22,19 +22,21 @@ from inference.preprocessor import Preprocessor
 
 logger = logging.getLogger(__name__)
 
-# Attempt TFLite import — try ai_edge_litert first (Python 3.12+ / modern Pi),
-# fall back to legacy tflite_runtime, then full tensorflow.
+# TFLite import — full tensorflow package first (includes Flex delegate,
+# required for SELECT_TF_OPS models like BiLSTM+MHA with Bidirectional LSTM).
+# Falls back to ai_edge_litert only if tensorflow is not installed, but that
+# fallback will fail at allocate_tensors() for SELECT_TF_OPS models.
 try:
-    import ai_edge_litert.interpreter as tflite
+    import tensorflow as tf
+    tflite = tf.lite
     TFLITE_AVAILABLE = True
 except ImportError:
     try:
-        import tflite_runtime.interpreter as tflite
+        import ai_edge_litert.interpreter as tflite
         TFLITE_AVAILABLE = True
     except ImportError:
         try:
-            import tensorflow as tf
-            tflite = tf.lite
+            import tflite_runtime.interpreter as tflite
             TFLITE_AVAILABLE = True
         except ImportError:
             TFLITE_AVAILABLE = False
