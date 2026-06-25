@@ -147,6 +147,15 @@ class LSTMRunner:
             return False
 
         try:
+            # Pre-load tensorflow shared libs so ai_edge_litert's Flex
+            # delegate can find FlexTensorListReserve at allocate_tensors().
+            # Must happen in the same call context as Interpreter(), not just
+            # at module import time.
+            try:
+                import tensorflow as _tf  # noqa: F401
+            except ImportError:
+                pass
+
             self._interpreter = tflite.Interpreter(
                 model_path=str(model_path)
             )
