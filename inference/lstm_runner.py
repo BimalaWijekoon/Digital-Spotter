@@ -22,10 +22,19 @@ from inference.preprocessor import Preprocessor
 
 logger = logging.getLogger(__name__)
 
-# TFLite import — ai_edge_litert first: ships with Flex delegate on this Pi
-# and correctly handles SELECT_TF_OPS models (FlexTensorListReserve from
-# Bidirectional LSTM). tf.lite.Interpreter from the TF 2.16.2 AWS aarch64
-# build fails on FULLY_CONNECTED version 12, so it is the fallback only.
+# Pre-import tensorflow to load its shared libraries into process memory.
+# ai_edge_litert's Flex delegate (needed for FlexTensorListReserve from
+# Bidirectional LSTM) depends on these shared libs being present at runtime.
+# Without this, ai_edge_litert fails with "Select TensorFlow op(s) not
+# supported" even though the Flex delegate is technically available.
+try:
+    import tensorflow as _tf_preload  # noqa: F401 — side-effect only
+except ImportError:
+    pass
+
+# TFLite runtime — ai_edge_litert has the correct op kernel table for this
+# model (FULLY_CONNECTED v12). tf.lite.Interpreter from the TF 2.16.2 AWS
+# aarch64 build fails on that op version, so it is the last resort only.
 try:
     import ai_edge_litert.interpreter as tflite
     TFLITE_AVAILABLE = True
