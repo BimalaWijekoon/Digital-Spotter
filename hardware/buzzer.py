@@ -67,10 +67,11 @@ class Buzzer:
         try:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self._pin, GPIO.OUT, initial=GPIO.LOW)
-            self._pwm = GPIO.PWM(self._pin, 2000)  # 2kHz tone
+            self._pwm = GPIO.PWM(self._pin, Config.BUZZER.FREQUENCY)
             self._pwm.start(0)
             self._is_setup = True
-            logger.info("Buzzer initialized on GPIO %d (Passive/PWM mode)", self._pin)
+            logger.info("Buzzer initialized on GPIO %d (Passive/PWM mode, %dHz)", 
+                        self._pin, Config.BUZZER.FREQUENCY)
         except Exception as e:
             logger.error("Failed to setup GPIO %d: %s", self._pin, e)
             self._is_mock = True

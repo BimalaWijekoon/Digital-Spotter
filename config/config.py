@@ -141,11 +141,13 @@ class _MQTT:
 
 
 class _Buzzer:
-    """Active buzzer GPIO configuration."""
+    """Active/Passive buzzer GPIO configuration."""
     GPIO_PIN = int(os.getenv("DS_BUZZER_PIN", "18"))
     ENABLED = os.getenv("DS_BUZZER_ENABLED", "true").lower() == "true"
     # Triple rapid beep: [on, off, on, off, on] in seconds
     BAD_FORM_PATTERN = [0.1, 0.08, 0.1, 0.08, 0.1]
+    # Tuning frequency for passive buzzers (find resonant frequency for max volume)
+    FREQUENCY = int(os.getenv("DS_BUZZER_FREQ", "2500"))
 
 
 class _RgbLed:
