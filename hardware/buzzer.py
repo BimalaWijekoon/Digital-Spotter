@@ -31,8 +31,8 @@ except ImportError:
 class Buzzer:
     """Active buzzer controller using GPIO.
 
-    Drives an active buzzer module connected to a GPIO pin.
-    Active buzzers only need HIGH/LOW — no PWM frequency control needed.
+    Drives a passive or active buzzer module connected to a GPIO pin.
+    Uses PWM at 2kHz to generate a tone for passive buzzers.
     Falls back to silent mock mode on non-Pi platforms.
 
     Attributes:
@@ -52,6 +52,7 @@ class Buzzer:
         self._enabled = enabled if enabled is not None else Config.BUZZER.ENABLED
         self._is_mock = not GPIO_AVAILABLE
         self._is_setup = False
+        self._pwm = None
         self._lock = threading.Lock()
 
         if not self._is_mock and self._enabled:
@@ -66,8 +67,10 @@ class Buzzer:
         try:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self._pin, GPIO.OUT, initial=GPIO.LOW)
+            self._pwm = GPIO.PWM(self._pin, 2000)  # 2kHz tone
+            self._pwm.start(0)
             self._is_setup = True
-            logger.info("Buzzer initialized on GPIO %d", self._pin)
+            logger.info("Buzzer initialized on GPIO %d (Passive/PWM mode)", self._pin)
         except Exception as e:
             logger.error("Failed to setup GPIO %d: %s", self._pin, e)
             self._is_mock = True
@@ -128,13 +131,13 @@ class Buzzer:
             self._set_pin(False)
 
     def _set_pin(self, high):
-        """Set GPIO pin state.
+        """Set buzzer state.
 
         Args:
-            high: True for HIGH, False for LOW.
+            high: True to sound tone, False to silence.
 
         Side Effects:
-            Writes to GPIO pin.
+            Changes PWM duty cycle.
         """
         if self._is_mock:
             state = "ON" if high else "OFF"
@@ -143,9 +146,10 @@ class Buzzer:
 
         if self._is_setup:
             try:
-                GPIO.output(self._pin, GPIO.HIGH if high else GPIO.LOW)
+                # 50% duty cycle for tone, 0% for silence
+                self._pwm.ChangeDutyCycle(50.0 if high else 0.0)
             except Exception as e:
-                logger.error("GPIO output error: %s", e)
+                logger.error("Buzzer PWM error: %s", e)
 
     @property
     def is_mock(self):
@@ -167,11 +171,11 @@ class Buzzer:
         """Release GPIO resources.
 
         Side Effects:
-            Calls GPIO.cleanup() for the buzzer pin.
+            Stops PWM and calls GPIO.cleanup() for the buzzer pin.
         """
         if not self._is_mock and self._is_setup:
             try:
-                GPIO.output(self._pin, GPIO.LOW)
+                self._pwm.stop()
                 GPIO.cleanup(self._pin)
                 logger.info("Buzzer GPIO %d cleaned up", self._pin)
             except Exception as e:
