@@ -133,11 +133,14 @@ class _IMU:
 
 
 class _MQTT:
-    """MQTT configuration for ESP32-S3 IMU data."""
-    BROKER = os.getenv("DS_MQTT_BROKER", "localhost")
-    PORT = int(os.getenv("DS_MQTT_PORT", "1883"))
-    TOPIC = "digitalspotter/imu"
-    ENABLED = os.getenv("DS_MQTT_ENABLED", "false").lower() == "true"
+    """MQTT configuration for HiveMQ Cloud (TLS)."""
+    BROKER   = os.getenv("DS_MQTT_BROKER",   "localhost")
+    PORT     = int(os.getenv("DS_MQTT_PORT",  "8883"))
+    USERNAME = os.getenv("DS_MQTT_USERNAME",  "")
+    PASSWORD = os.getenv("DS_MQTT_PASSWORD",  "")
+    TOPIC    = "digitalspotter/imu"
+    RESULT_TOPIC = "digitalspotter/result"
+    ENABLED  = os.getenv("DS_MQTT_ENABLED",   "false").lower() == "true"
 
 
 class _Buzzer:

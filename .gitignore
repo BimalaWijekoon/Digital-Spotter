@@ -14,3 +14,7 @@ build/
 *.swp
 *.swo
 *~
+
+# Hardware credentials — never commit these
+firmware/esp32_c3_imu/secrets.h
+.env
