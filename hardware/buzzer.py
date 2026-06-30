@@ -109,6 +109,33 @@ class Buzzer:
             daemon=True,
         ).start()
 
+    def beep_warning(self):
+        """Two slow beeps — signals a component failure or disconnect.
+
+        Distinct from beep_bad_form (5 rapid) and beep_test (1 short).
+        Non-blocking — runs in a background thread.
+        """
+        if not self._enabled:
+            return
+        threading.Thread(
+            target=self._play_pattern,
+            args=([0.4, 0.2, 0.4],),
+            daemon=True,
+        ).start()
+
+    def beep_session_start(self):
+        """Double short beep — signals session started successfully.
+
+        Non-blocking — runs in a background thread.
+        """
+        if not self._enabled:
+            return
+        threading.Thread(
+            target=self._play_pattern,
+            args=([0.1, 0.08, 0.1],),
+            daemon=True,
+        ).start()
+
     def _play_pattern(self, pattern):
         """Play a beep pattern: alternating on/off durations.
 

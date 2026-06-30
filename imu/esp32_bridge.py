@@ -56,6 +56,7 @@ class ESP32Bridge:
         self._frame_count = 0
         self._lock        = threading.Lock()
         self._latest_sample = None
+        self._last_data_time = 0.0
         self._client = None
 
         if self._is_mock:
@@ -173,6 +174,13 @@ class ESP32Bridge:
         return self._connected
 
     @property
+    def data_is_flowing(self) -> bool:
+        """True if real IMU packets arrived in the last 3 seconds (or mock is active)."""
+        if self._is_mock:
+            return self._connected
+        return self._connected and (time.time() - self._last_data_time) < 3.0
+
+    @property
     def is_mock(self) -> bool:
         """True if using mock data."""
         return self._is_mock
@@ -206,7 +214,6 @@ class ESP32Bridge:
                 "gyro_x":           float(data.get("gx", 0.0)),
                 "gyro_y":           float(data.get("gy", 0.0)),
                 "gyro_z":           float(data.get("gz", 0.0)),
-                # Derived fields (can be computed server-side in future)
                 "v_bar_velocity":   0.0,
                 "p_bar_power":      0.0,
                 "smoothness_jerk":  0.0,
@@ -214,7 +221,8 @@ class ESP32Bridge:
             }
 
             with self._lock:
-                self._latest_sample = sample
+                self._latest_sample  = sample
+                self._last_data_time = time.time()
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning("[MQTT] Malformed IMU packet: %s", e)

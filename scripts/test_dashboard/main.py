@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import asyncio
 import numpy as np
 import logging
 import time
@@ -28,6 +29,7 @@ from inference.lstm_runner import LSTMRunner
 from inference.preprocessor import Preprocessor
 from hardware.buzzer import Buzzer
 from hardware.rgb_led import RgbLed
+from imu.esp32_bridge import ESP32Bridge
 
 # Configure logging
 logging.basicConfig(
@@ -133,12 +135,14 @@ _runner: LSTMRunner = None
 _preprocessor: Preprocessor = None
 _buzzer: Buzzer = None
 _rgb: RgbLed = None
+_bridge: ESP32Bridge = None
+_session_active: bool = False
 
 
 @app.on_event("startup")
 async def startup():
     """Load model, preprocessor, and initialize buzzer at startup."""
-    global _runner, _preprocessor, _buzzer, _rgb
+    global _runner, _preprocessor, _buzzer, _rgb, _bridge
 
     logger.info("Loading v4 inference pipeline...")
 
@@ -158,13 +162,22 @@ async def startup():
     logger.info("✓ RGB LED initialized (mock=%s, pins=%d,%d,%d)", 
                 _rgb.is_mock, Config.RGB_LED.PIN_R, Config.RGB_LED.PIN_G, Config.RGB_LED.PIN_B)
 
+    _bridge = ESP32Bridge()
+    _bridge.connect()
+    logger.info("✓ ESP32Bridge connected (mock=%s)", _bridge.is_mock)
+
+    # Start background disconnect monitor
+    asyncio.create_task(_monitor_connection())
+
     logger.info("Dashboard ready — v4 model, %d features, threshold=%.3f",
                 TOTAL_FEATURES, Config.INFERENCE.DECISION_THRESHOLD)
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Clean up GPIO on shutdown."""
+    """Clean up GPIO and MQTT on shutdown."""
+    if _bridge:
+        _bridge.disconnect()
     if _buzzer:
         _buzzer.cleanup()
     if _rgb:
@@ -198,9 +211,93 @@ async def health():
         "buzzer_pin": Config.BUZZER.GPIO_PIN,
         "rgb_enabled": _rgb.is_enabled if _rgb else False,
         "rgb_mock": _rgb.is_mock if _rgb else True,
+        "imu_connected": _bridge.is_connected() if _bridge else False,
+        "imu_mock": _bridge.is_mock if _bridge else True,
         "threshold": Config.INFERENCE.DECISION_THRESHOLD,
         "features": TOTAL_FEATURES,
         "sequence_length": SEQUENCE_LENGTH_MODEL,
+    }
+
+
+async def _monitor_connection():
+    """Background task: detect ESP32 disconnect during active session."""
+    global _session_active
+    while True:
+        await asyncio.sleep(1.5)
+        if _session_active and _bridge and not _bridge.data_is_flowing:
+            logger.warning("[MONITOR] ESP32 disconnected during active session!")
+            _session_active = False
+            if _buzzer:
+                _buzzer.beep_warning()          # Two slow beeps = component issue
+            if _rgb and _rgb.is_enabled:
+                _rgb.bad_form()                  # Red flash
+
+
+@app.get("/status")
+async def system_status():
+    """Detailed system readiness status for the init screen."""
+    model_ok   = bool(_runner and _runner.is_loaded())
+    pre_ok     = bool(_preprocessor and _preprocessor.is_loaded())
+    buzzer_ok  = _buzzer is not None
+    rgb_ok     = _rgb is not None
+    mqtt_ok    = bool(_bridge and _bridge.is_connected())
+    data_ok    = bool(_bridge and _bridge.data_is_flowing)
+
+    return {
+        "model_ready":        model_ok,
+        "model_mock":         _runner.is_mock if _runner else True,
+        "preprocessor_ready": pre_ok,
+        "preprocessor_mock":  _preprocessor.is_mock if _preprocessor else True,
+        "buzzer_ready":       buzzer_ok,
+        "buzzer_mock":        _buzzer.is_mock if _buzzer else True,
+        "buzzer_pin":         Config.BUZZER.GPIO_PIN,
+        "rgb_ready":          rgb_ok,
+        "rgb_mock":           _rgb.is_mock if _rgb else True,
+        "mqtt_connected":     mqtt_ok,
+        "imu_mock":           _bridge.is_mock if _bridge else True,
+        "esp32_data_flowing": data_ok,
+        "session_active":     _session_active,
+        "all_ready":          all([model_ok, pre_ok, buzzer_ok, rgb_ok, mqtt_ok, data_ok]),
+        "threshold":          Config.INFERENCE.DECISION_THRESHOLD,
+    }
+
+
+@app.post("/session/start")
+async def session_start():
+    """Start an active inference session."""
+    global _session_active
+    if not (_bridge and _bridge.data_is_flowing):
+        raise HTTPException(status_code=503, detail="ESP32 not sending data")
+    _session_active = True
+    if _rgb and _rgb.is_enabled:
+        _rgb.processing()      # Fast green pulse = session active
+    if _buzzer:
+        _buzzer.beep_session_start()
+    logger.info("Session started")
+    return {"session_active": True}
+
+
+@app.post("/session/stop")
+async def session_stop():
+    """Stop the active inference session."""
+    global _session_active
+    _session_active = False
+    if _rgb and _rgb.is_enabled:
+        _rgb.idle()
+    logger.info("Session stopped")
+    return {"session_active": False}
+
+
+@app.get("/imu/latest")
+async def imu_latest():
+    """Return the latest IMU sample from the ESP32 over MQTT."""
+    if not _bridge:
+        raise HTTPException(status_code=503, detail="ESP32Bridge not initialized")
+    sample = _bridge.read_sample()
+    return {
+        "connected": _bridge.is_connected(),
+        "is_mock": _bridge.is_mock,
+        "data": sample,
     }
 
 
@@ -313,7 +410,7 @@ async def predict(request: PredictionRequest):
 
     elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-    # Fire buzzer and LED based on outcome
+    # Fire buzzer, LED and publish result to ESP32
     buzzer_fired = False
     if result.is_bad_form:
         if _buzzer and _buzzer.is_enabled:
@@ -321,10 +418,14 @@ async def predict(request: PredictionRequest):
             buzzer_fired = True
         if _rgb and _rgb.is_enabled:
             _rgb.bad_form()
+        if _bridge:
+            _bridge.publish_result(True, result.confidence)  # → ESP32 buzzer fires
         logger.info("🔴 BAD FORM detected (%.1f%%)", result.confidence * 100)
     else:
         if _rgb and _rgb.is_enabled:
             _rgb.good_form()
+        if _bridge:
+            _bridge.publish_result(False, result.confidence)  # → ESP32 buzzer fires
         logger.info("🟢 %s (%.1f%%)", result.label, result.confidence * 100)
 
     return {
